@@ -11,7 +11,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pulp
 import numpy as np
-import math, time, warnings
+import math, re, tempfile, time, warnings
 import requests
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -265,6 +265,39 @@ def solve_baseline(locations, vehicles, dist_matrix):
 
 # ── MILP OPTIMIZER ─────────────────────────────────────────────────────────────
 
+def mip_gap_from_cbc_log(log: str, objective: float | None):
+    """Relative gap (obj - bound) / |obj| of CBC's final solution.
+
+    Returns 0.0 when CBC proved optimality, the gap when it stopped on the time
+    limit or the gap tolerance, and None if the log does not say.
+    """
+    m = re.search(r"Exiting as integer gap of ([-\d.eE+]+)", log)
+    if m:
+        abs_gap = float(m.group(1))
+    elif "Stopped on time limit" in log:
+        m = re.search(r"Lower bound:\s+([-\d.eE+]+)", log)
+        if not m or objective is None:
+            return None
+        abs_gap = objective - float(m.group(1))
+    elif re.search(r"Result - Optimal solution found\s*$", log, re.MULTILINE):
+        return 0.0
+    else:
+        return None
+    if objective is None or abs(objective) < 1e-9:
+        return None
+    gap = max(0.0, abs_gap / abs(objective))
+    return 0.0 if gap < 1e-6 else gap
+
+
+def status_label(gap):
+    """Text shown to users: 'Optimal' only when proven."""
+    if gap == 0:
+        return "Optimal"
+    if gap is None:
+        return "Best found (gap unknown)"
+    return f"Best found (gap {gap * 100:.1f}%)"
+
+
 class FleetOptimizer:
     def __init__(self, locations, vehicles, config=None):
         self.locations = locations
@@ -275,6 +308,46 @@ class FleetOptimizer:
         self.customers = list(range(1, self.n))
         self.dist = build_distance_matrix(locations)
         self.time_matrix = {v.id: build_time_matrix(self.dist, v.speed_kmh) for v in vehicles}
+
+    def _route_fits_time_limits(self, route, k):
+        """True if a depot-to-depot route meets the MILP's time windows and shift."""
+        tm = self.time_matrix[self.vehicles[k].id]
+        clock, driving = 0.0, 0.0
+        for a, b in zip(route, route[1:]):
+            lead = self.locations[a].service_time + tm[a][b]
+            driving += lead
+            if b == 0:
+                continue
+            clock = max(self.locations[b].time_window_start, clock + lead)
+            if clock > self.locations[b].time_window_end:
+                return False
+        return driving <= self.vehicles[k].max_shift_hours * 60
+
+    def _set_warm_start(self, x, y):
+        """Loads the nearest-neighbour routes as the MILP start, if they are feasible.
+
+        CBC keeps this start as its incumbent, so a solve stopped by the time
+        limit still returns a solution at least as good as the baseline.
+        Returns True if the start was set.
+        """
+        base = solve_baseline(self.locations, self.vehicles, self.dist)
+        k_of = {v.id: k for k, v in enumerate(self.vehicles)}
+        routes = {k_of[int(vid)]: r["route"] for vid, r in base["routes"].items()}
+        served = sorted(c for r in routes.values() for c in r if c != 0)
+        if served != self.customers:
+            return False
+        if (self.config.min_vehicles_used is not None
+                and len(routes) < self.config.min_vehicles_used):
+            return False
+        if not all(self._route_fits_time_limits(r, k) for k, r in routes.items()):
+            return False
+        for var in list(x.values()) + list(y.values()):
+            var.setInitialValue(0)
+        for k, route in routes.items():
+            y[k].setInitialValue(1)
+            for a, b in zip(route, route[1:]):
+                x[a, b, k].setInitialValue(1)
+        return True
 
     def solve(self, weights=None, time_limit=None):
         w1, w2, w3 = weights or (self.config.w_cost, self.config.w_co2, self.config.w_fairness)
@@ -366,18 +439,34 @@ class FleetOptimizer:
         if self.config.min_vehicles_used is not None:
             prob += pulp.lpSum(y[k] for k in range(m)) >= self.config.min_vehicles_used
 
-        solver_kwargs = {"gapRel": self.config.solver_gap, "msg": 0}
-        if tl is not None:
-            solver_kwargs["timeLimit"] = tl
-        solver = pulp.PULP_CBC_CMD(**solver_kwargs)
-        prob.solve(solver)
+        warm = self._set_warm_start(x, y)
+        # msg=0 plus logPath: CBC's output goes to the file, which is the only
+        # place it reports the remaining gap.
+        # A directory, not NamedTemporaryFile: Windows can't reopen an open temp file.
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "cbc.log")
+            solver_kwargs = {"gapRel": self.config.solver_gap, "msg": 0,
+                             "warmStart": warm, "logPath": log_path}
+            if tl is not None:
+                solver_kwargs["timeLimit"] = tl
+            prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+            with open(log_path) as f:
+                cbc_log = f.read()
         elapsed = time.time() - t0
-        status = pulp.LpStatus[prob.status]
 
-        if status not in ("Optimal", "Feasible"):
+        # PuLP reports "Optimal" whenever CBC returns a solution, including one
+        # stopped by the time limit or the gap tolerance; sol_status tells
+        # whether any integer solution exists.
+        if prob.sol_status not in (pulp.LpSolutionOptimal, pulp.LpSolutionIntegerFeasible):
+            status = pulp.LpStatus[prob.status]
             return {"status": status, "error": f"Solver: {status}", "solve_time_s": round(elapsed, 2)}
 
-        return self._extract(prob, x, y, s, status, elapsed)
+        gap = mip_gap_from_cbc_log(cbc_log, pulp.value(prob.objective))
+        result = self._extract(prob, x, y, s, "Optimal" if gap == 0 else "Feasible", elapsed)
+        result["gap_pct"] = None if gap is None else round(gap * 100, 2)
+        result["status_label"] = status_label(gap)
+        result["warm_start"] = warm
+        return result
 
     def _extract(self, prob, x, y, s, status, elapsed):
         n, m = self.n, self.m
