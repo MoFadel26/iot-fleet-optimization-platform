@@ -1,11 +1,12 @@
 import React, { useRef } from 'react';
 import {
   Settings, Play, DollarSign, Leaf, Users,
-  CheckCircle2, XCircle, TrendingDown, Truck,
+  CheckCircle2, XCircle, TrendingDown, Truck, Sliders,
 } from 'lucide-react';
 import { useLanguage } from '@/app/i18n/LanguageContext';
 import { Button } from '@/app/components/ui/button';
 import { apiUrl } from '@/services/api';
+import { loadSavedWeights } from '@/app/config/optimizationWeights';
 import { toast } from 'sonner';
 
 // ── Types matching optimizer_api.py response ──────────────────────────────────
@@ -61,6 +62,8 @@ const WEIGHTS = {
   workload: { w_cost: 0.2, w_co2: 0.2, w_fairness: 0.6 },
 };
 
+type Objective = keyof typeof WEIGHTS | 'settings';
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 function SpecBadge({ met, label }: { met: boolean; label: string }) {
@@ -92,13 +95,28 @@ function Counter({
 
 export function RouteOptimizationPage() {
   const { t, isRTL } = useLanguage();
-  const [objective, setObjective] = React.useState<'cost' | 'co2' | 'workload'>('cost');
+  // Weights saved on the Settings page (percentages). Read once on mount.
+  const [savedWeights] = React.useState(loadSavedWeights);
+  const [objective, setObjective] = React.useState<Objective>(savedWeights ? 'settings' : 'cost');
   const [isOptimizing, setIsOptimizing] = React.useState(false);
   const [nCustomers, setNCustomers] = React.useState(10);
   const [nVehicles, setNVehicles] = React.useState(5);
   const [apiResult, setApiResult] = React.useState<ApiResult | null>(null);
   const [elapsedSec, setElapsedSec] = React.useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const requestWeights = () => {
+    if (objective === 'settings' && savedWeights) {
+      // Normalise so the three weights sum to 1, like the presets.
+      const total = savedWeights.cost + savedWeights.co2 + savedWeights.workload;
+      return {
+        w_cost: savedWeights.cost / total,
+        w_co2: savedWeights.co2 / total,
+        w_fairness: savedWeights.workload / total,
+      };
+    }
+    return WEIGHTS[objective === 'settings' ? 'cost' : objective];
+  };
 
   const handleOptimize = async () => {
     setIsOptimizing(true);
@@ -112,7 +130,7 @@ export function RouteOptimizationPage() {
         body: JSON.stringify({
           n_customers: nCustomers,
           n_vehicles: nVehicles,
-          ...WEIGHTS[objective],
+          ...requestWeights(),
           seed: 42,
         }),
       });
@@ -136,6 +154,11 @@ export function RouteOptimizationPage() {
   };
 
   const objectives = [
+    ...(savedWeights ? [{
+      key: 'settings' as const, icon: Sliders, label: t('route.settingsWeights'),
+      desc: `${t('route.settingsWeightsDesc')} ${savedWeights.cost}/${savedWeights.co2}/${savedWeights.workload}`,
+      active: 'border-amber-500 bg-amber-50', iconBg: 'bg-amber-100', iconColor: 'text-amber-700',
+    }] : []),
     { key: 'cost' as const,     icon: DollarSign, label: t('route.costMin'),    desc: t('route.costMinDesc'),    active: 'border-blue-500 bg-blue-50',   iconBg: 'bg-blue-100',   iconColor: 'text-blue-700'   },
     { key: 'co2' as const,      icon: Leaf,        label: t('route.co2Min'),     desc: t('route.co2MinDesc'),     active: 'border-green-500 bg-green-50', iconBg: 'bg-green-100',  iconColor: 'text-green-700'  },
     { key: 'workload' as const, icon: Users,       label: t('route.balanced'),   desc: t('route.balancedDesc'),   active: 'border-purple-500 bg-purple-50',iconBg: 'bg-purple-100', iconColor: 'text-purple-700' },

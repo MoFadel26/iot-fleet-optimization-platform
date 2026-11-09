@@ -262,6 +262,8 @@ const en: Record<string, string> = {
   'route.co2MinDesc': 'Reduce carbon footprint',
   'route.balanced': 'Balanced',
   'route.balancedDesc': 'Optimize all objectives equally',
+  'route.settingsWeights': 'Settings Weights',
+  'route.settingsWeightsDesc': 'Saved in Settings · Cost/CO₂/Workload %',
   'route.runOptimization': 'Run Optimization',
   'route.fleetSummary': 'Fleet Summary',
   'route.solveTime': 'Solve time',
@@ -762,6 +764,8 @@ const ar: Record<string, string> = {
   'route.co2MinDesc': 'تقليل البصمة الكربونية',
   'route.balanced': 'متوازن',
   'route.balancedDesc': 'تحسين جميع الأهداف بالتساوي',
+  'route.settingsWeights': 'أوزان الإعدادات',
+  'route.settingsWeightsDesc': 'محفوظة في الإعدادات · التكلفة/CO₂/عبء العمل %',
   'route.runOptimization': 'تشغيل التحسين',
   'route.fleetSummary': 'ملخص الأسطول',
   'route.solveTime': 'وقت الحل',
@@ -1175,6 +1179,8 @@ const ur: Record<string, string> = {
   'route.co2MinDesc': 'کاربن فٹ پرنٹ کم کریں', // TODO: verify Urdu
   'route.balanced': 'متوازن', // TODO: verify Urdu
   'route.balancedDesc': 'تمام مقاصد کو برابر بہتر بنائیں', // TODO: verify Urdu
+  'route.settingsWeights': 'ترتیبات کے وزن', // TODO: verify Urdu
+  'route.settingsWeightsDesc': 'ترتیبات میں محفوظ · لاگت/CO₂/کام کا بوجھ %', // TODO: verify Urdu
   'route.runOptimization': 'اصلاح چلائیں', // TODO: verify Urdu
   'route.fleetSummary': 'فلیٹ کا خلاصہ', // TODO: verify Urdu
   'route.solveTime': 'حل کا وقت', // TODO: verify Urdu

@@ -3,8 +3,8 @@ import { toast } from 'sonner';
 import { Settings, Truck, Sliders, Globe, Save } from 'lucide-react';
 import { useLanguage, type Language } from '@/app/i18n/LanguageContext';
 import { Button } from '@/app/components/ui/button';
+import { WEIGHTS_STORAGE_KEY as STORAGE_KEY } from '@/app/config/optimizationWeights';
 
-const STORAGE_KEY = 'fleetiot-settings-weights';
 const DEFAULTS = { cost: 40, co2: 30, workload: 30 };
 
 export function SettingsPage() {
