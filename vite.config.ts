@@ -6,6 +6,13 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const iotDeviceUrl = env.VITE_IOT_DEVICE_URL || 'http://172.20.10.6'
+  // Hostnames `vite preview` (npm start) answers to, comma-separated, e.g.
+  // PREVIEW_ALLOWED_HOSTS=fleet.example.com. Unset: Vite's default, which
+  // only allows localhost.
+  const previewAllowedHosts = (env.PREVIEW_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean)
 
   return {
     plugins: [
@@ -27,9 +34,9 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       // preview.proxy defaults to server.proxy; keep the LAN device proxy out
-      // of `vite preview` (used on Railway), where it can only time out.
+      // of `vite preview` (used in production), where it can only time out.
       proxy: {},
-      allowedHosts: ['iotfleetoptimizationplatform-production.up.railway.app', 'all'],
+      allowedHosts: previewAllowedHosts.length > 0 ? previewAllowedHosts : undefined,
     },
     resolve: {
       alias: {
