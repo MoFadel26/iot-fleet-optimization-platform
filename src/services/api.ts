@@ -1,7 +1,7 @@
 // API base URL helper.
 //
 // In production, set VITE_API_URL at build time to the deployed Flask URL
-// (e.g. https://fleet-optimizer-api.up.railway.app). Locally, the Flask dev
+// (e.g. https://api.example.com). Locally, the Flask dev
 // server (optimizer_api.py or run.py) listens on :5001, which matches the
 // fallback below. (Not 5000: macOS AirPlay Receiver uses that port.)
 
