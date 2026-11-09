@@ -288,8 +288,13 @@ class FleetOptimizer:
         x = {(i, j, k): pulp.LpVariable(f"x_{i}_{j}_{k}", cat="Binary")
              for k in range(m) for i in range(n) for j in range(n) if i != j}
         y = {k: pulp.LpVariable(f"y_{k}", cat="Binary") for k in range(m)}
+        # The time-window constraints already forbid subtours when every arc
+        # between customers takes time (service_time > 0): around a cycle the
+        # start times would have to increase forever. MTZ is only needed
+        # otherwise, and dropping it makes the model smaller and faster.
+        use_mtz = any(self.locations[c].service_time <= 0 for c in self.customers)
         u = {(i, k): pulp.LpVariable(f"u_{i}_{k}", 1, n - 1)
-             for k in range(m) for i in self.customers}
+             for k in range(m) for i in self.customers} if use_mtz else {}
         s = {(i, k): pulp.LpVariable(
                 f"s_{i}_{k}",
                 self.locations[i].time_window_start if i > 0 else 0,
@@ -326,10 +331,11 @@ class FleetOptimizer:
             # A customer can only be visited by a vehicle that leaves the depot.
             for j in self.customers:
                 prob += pulp.lpSum(x[i, j, k] for i in range(n) if i != j) <= y[k]
-            for i in self.customers:
-                for j in self.customers:
-                    if i != j:
-                        prob += u[i, k] - u[j, k] + (n - 1) * x[i, j, k] <= n - 2
+            if use_mtz:
+                for i in self.customers:
+                    for j in self.customers:
+                        if i != j:
+                            prob += u[i, k] - u[j, k] + (n - 1) * x[i, j, k] <= n - 2
             vid = self.vehicles[k].id
             for i in range(n):
                 for j in self.customers:
