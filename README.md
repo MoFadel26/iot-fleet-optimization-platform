@@ -111,6 +111,17 @@ After a few seconds you'll see a line that says something like `Local: http://lo
 
 Open your browser and go to **<http://localhost:5173>**
 
+## Running the Tests
+
+The solver has a small test suite (about 15 seconds). In the project folder:
+
+```
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+It does not need MongoDB.
+
 ## If Something Goes Wrong
 
 **If you see: `'npm' is not recognized` or `command not found: npm`** — Do this: Node.js isn't installed yet, or you need to close and reopen the terminal so it notices the new install. Reinstall from <https://nodejs.org/en/download> and open a fresh terminal.
