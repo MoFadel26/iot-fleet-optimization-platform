@@ -31,7 +31,7 @@ Railway pulls code from a GitHub repo. If this project isn't already on GitHub, 
 1. In Railway, **New Project** → **Deploy from GitHub repo** → pick this repo.
 2. After the first deploy attempt, open the service → **Settings** and confirm:
    - **Root Directory:** `/` (the repo root)
-   - **Build Command:** `pip install -r requirements.txt` (also set in `railway.toml`)
+   - **Build Command:** `pip install -r requirements.txt`
    - **Start Command:** `gunicorn run:app --bind 0.0.0.0:$PORT --workers 2` (also in `Procfile`)
 3. **Variables** — add:
 
@@ -80,7 +80,7 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 - `VITE_API_URL` *(required)* — full URL of the backend service
 - `PORT` *(injected by Railway)*
 
-`.env` is git-ignored — never commit it. The `.env.example` file documents the same variables for local development.
+`.env` is git-ignored — never commit it. `.env.example` (committed) lists every variable with placeholder values; copy it to `.env` for local development. It also lists `VITE_IOT_DEVICE_URL`, which only matters for local development with the ESP32.
 
 ---
 

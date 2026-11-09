@@ -58,7 +58,9 @@ cp .env.example .env
 copy .env.example .env
 ```
 
-Now open the new `.env` file in any text editor (Notepad on Windows, TextEdit on Mac). You'll see lines like `MONGO_URI=` and `HERE_API_KEY=`. Paste your MongoDB connection string after the `=` on the `MONGO_URI` line, and your HERE key after the `=` on the `HERE_API_KEY` line. Save and close the file.
+Now open the new `.env` file in any text editor (Notepad on Windows, TextEdit on Mac). You'll see lines like `MONGO_URI=` and `HERE_API_KEY=`. Replace the value after the `=` on the `MONGO_URI` line with your MongoDB connection string, and the value on the `HERE_API_KEY` line with your HERE key. Leave the other lines as they are. Save and close the file.
+
+Every variable is described in `.env.example`.
 
 ### Step 3 — Install the website's building blocks
 
@@ -102,21 +104,17 @@ Then type this and press Enter:
 npm run dev
 ```
 
-After a few seconds you'll see a line that says something like `Local: https://localhost:5173/`.
+After a few seconds you'll see a line that says something like `Local: http://localhost:5173/`.
 
 ### Step 7 — Open the website
 
-Open your browser and go to **<https://localhost:5173>**
-
-Your browser will probably show a scary red warning that says "Your connection is not private" — this is normal because the site is running on your own computer. Click **"Advanced"** and then **"Proceed to localhost"** (or "Continue").
+Open your browser and go to **<http://localhost:5173>**
 
 ## If Something Goes Wrong
 
 **If you see: `'npm' is not recognized` or `command not found: npm`** — Do this: Node.js isn't installed yet, or you need to close and reopen the terminal so it notices the new install. Reinstall from <https://nodejs.org/en/download> and open a fresh terminal.
 
 **If you see: `'python' is not recognized` or `command not found: python`** — Do this: try typing `python3` instead of `python`. If that also fails, reinstall Python from <https://www.python.org/downloads/> and on Windows make sure you tick **"Add Python to PATH"** on the first installer screen.
-
-**If you see: `ENOENT: no such file or directory, open 'key.pem'`** — Do this: the website uses a security certificate file that gets created on the developer's machine. Install a small helper called **mkcert** from <https://github.com/FiloSottile/mkcert#installation>, then in the project folder run `mkcert -install` followed by `mkcert -key-file key.pem -cert-file cert.pem localhost`.
 
 **If you see: `ServerSelectionTimeoutError` or `Authentication failed`** — Do this: the calculation engine can't reach your database. Open `.env` again and double-check that your `MONGO_URI` line has no typos and that you replaced the `<user>` and `<password>` parts with your real MongoDB username and password. Also go to MongoDB Atlas → **Network Access** and click **Add IP Address → Allow Access from Anywhere**.
 

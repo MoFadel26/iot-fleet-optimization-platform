@@ -8,7 +8,6 @@ dist/
 # Environment variables - never commit secrets
 .env
 .env.local
-.env.example
 .env.*.local
 
 # TLS certificates and private keys - generated locally via mkcert
