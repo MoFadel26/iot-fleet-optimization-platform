@@ -93,6 +93,6 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 
 ## Notes / known limitations
 
-- The ESP32 IoT device proxy (`/iot-device/...`) is dev-only — it can't be reached from a deployed frontend. Live IoT features will be inert in production unless the device is exposed publicly.
+- The ESP32 IoT device proxy (`/iot-device/...`) is dev-only — it can't be reached from a deployed frontend. The IoT feed defaults to mock telemetry (`VITE_IOT_USE_MOCK`, default `true`); switching the Live Fleet map toggle to **ESP32** in production shows a disconnected state.
 - `vite preview` is used as the static server. It's adequate for this workload; swap to `serve -s dist -l $PORT` (and add `serve` to dev deps) if you outgrow it.
 - The free-tier Railway services may sleep after inactivity; first request after a nap can take 10–30s.

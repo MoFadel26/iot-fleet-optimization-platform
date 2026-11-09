@@ -15,8 +15,20 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
     ],
     server: {
+      proxy: {
+        // The ESP32 lives on the local network, so the real-device mode of the
+        // IoT feed only works under `npm run dev`.
+        '/iot-device': {
+          target: iotDeviceUrl,
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/iot-device/, ''),
+        },
+      },
     },
     preview: {
+      // preview.proxy defaults to server.proxy; keep the LAN device proxy out
+      // of `vite preview` (used on Railway), where it can only time out.
+      proxy: {},
       allowedHosts: ['iotfleetoptimizationplatform-production.up.railway.app', 'all'],
     },
     resolve: {

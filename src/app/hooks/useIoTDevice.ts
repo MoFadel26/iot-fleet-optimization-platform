@@ -59,43 +59,68 @@ interface IoTDeviceState {
   consecutiveFailures: number;
 }
 
-export function useIoTDevice(): IoTDeviceState {
-  const [state, setState] = useState<IoTDeviceState>({
-    data: null,
-    isConnected: false,
-    lastUpdated: null,
-    error: null,
-    consecutiveFailures: 0,
-  });
+const INITIAL_STATE: IoTDeviceState = {
+  data: null,
+  isConnected: false,
+  lastUpdated: null,
+  error: null,
+  consecutiveFailures: 0,
+};
+
+// Turns a failed device request into a message the UI can show as-is.
+function describeFailure(err: unknown): string {
+  const where = `ESP32 at ${IOT_CONFIG.DEVICE_URL}`;
+  if (err instanceof DOMException && err.name === 'TimeoutError') {
+    return `${where} did not respond within ${IOT_CONFIG.REQUEST_TIMEOUT / 1000}s`;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return `Cannot reach ${where} (${msg})`;
+}
+
+export function useIoTDevice(useMock: boolean): IoTDeviceState {
+  const [state, setState] = useState<IoTDeviceState>(INITIAL_STATE);
 
   const tickRef = useRef(0);
   const failuresRef = useRef(0);
   const lastDataRef = useRef<IoTPayload | null>(null);
 
   useEffect(() => {
-    if (IOT_CONFIG.USE_MOCK) {
-      const interval = setInterval(() => {
-        tickRef.current += 1;
-        const data = generateMockIoTPayload(tickRef.current);
-        lastDataRef.current = data;
-        setState({
-          data,
-          isConnected: true,
-          lastUpdated: new Date(),
-          error: null,
-          consecutiveFailures: 0,
-        });
-      }, IOT_CONFIG.POLL_INTERVAL);
+    // Start each mode from a clean state so mock data never shows as live
+    // device data (and the reverse).
+    setState(INITIAL_STATE);
+    failuresRef.current = 0;
+    lastDataRef.current = null;
+    // Ignore responses that arrive after the mode changed or the page unmounted.
+    let cancelled = false;
 
-      return () => clearInterval(interval);
-    }
+    const pollMock = () => {
+      tickRef.current += 1;
+      const data = generateMockIoTPayload(tickRef.current);
+      lastDataRef.current = data;
+      setState({
+        data,
+        isConnected: true,
+        lastUpdated: new Date(),
+        error: null,
+        consecutiveFailures: 0,
+      });
+    };
 
-    // Real device — fetch through Vite proxy (/iot-device) to avoid mixed-content blocks
-    const interval = setInterval(async () => {
+    // Real device — fetch through the Vite dev proxy (/iot-device) to avoid
+    // mixed-content and CORS blocks.
+    const pollDevice = async () => {
       try {
-        const res = await fetch('/iot-device/data');
+        const res = await fetch('/iot-device/data', {
+          signal: AbortSignal.timeout(IOT_CONFIG.REQUEST_TIMEOUT),
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // Without the dev proxy (vite preview / production) the request falls
+        // through to index.html instead of reaching the device.
+        if ((res.headers.get('content-type') ?? '').includes('text/html')) {
+          throw new Error('no /iot-device proxy; the real device only works with npm run dev');
+        }
         const raw: ESP32Response = await res.json();
+        if (cancelled) return;
         tickRef.current += 1;
         const data = mapESP32(raw, tickRef.current);
         lastDataRef.current = data;
@@ -108,6 +133,7 @@ export function useIoTDevice(): IoTDeviceState {
           consecutiveFailures: 0,
         });
       } catch (err) {
+        if (cancelled) return;
         failuresRef.current += 1;
         const failures = failuresRef.current;
         const offline = failures >= IOT_CONFIG.FAILURE_THRESHOLD;
@@ -115,14 +141,21 @@ export function useIoTDevice(): IoTDeviceState {
           ...prev,
           data: lastDataRef.current,
           isConnected: offline ? false : prev.isConnected,
-          error: offline ? 'Device offline' : prev.error,
+          error: offline ? describeFailure(err) : prev.error,
           consecutiveFailures: failures,
         }));
       }
-    }, IOT_CONFIG.POLL_INTERVAL);
+    };
 
-    return () => clearInterval(interval);
-  }, []);
+    const poll = useMock ? pollMock : pollDevice;
+    poll();
+    const interval = setInterval(poll, IOT_CONFIG.POLL_INTERVAL);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [useMock]);
 
   return state;
 }

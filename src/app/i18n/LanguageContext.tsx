@@ -483,6 +483,12 @@ const en: Record<string, string> = {
   'iot.liveIndicator': 'LIVE',
   'iot.recalcLast': 'Last Recalc',
   'iot.lastKnownShort': 'Last known',
+  'iot.connecting': 'Connecting to ESP32…',
+  'iot.disconnected': 'ESP32 disconnected',
+  'iot.useMock': 'Switch to mock data',
+  'iot.source': 'IoT data source',
+  'iot.mock': 'Mock',
+  'iot.esp32': 'ESP32',
 
   // Common
   'common.cancel': 'Cancel',
@@ -977,6 +983,12 @@ const ar: Record<string, string> = {
   'iot.liveIndicator': 'مباشر',
   'iot.recalcLast': 'آخر إعادة حساب',
   'iot.lastKnownShort': 'آخر بيانات',
+  'iot.connecting': 'جارٍ الاتصال بجهاز ESP32…',
+  'iot.disconnected': 'جهاز ESP32 غير متصل',
+  'iot.useMock': 'التبديل إلى البيانات التجريبية',
+  'iot.source': 'مصدر بيانات IoT',
+  'iot.mock': 'تجريبي',
+  'iot.esp32': 'ESP32',
 
   // Common
   'common.cancel': 'إلغاء',
@@ -1384,6 +1396,12 @@ const ur: Record<string, string> = {
   'iot.liveIndicator': 'براہ راست',
   'iot.recalcLast': 'آخری دوبارہ حساب',
   'iot.lastKnownShort': 'آخری معلوم', // TODO: verify Urdu
+  'iot.connecting': 'ESP32 سے رابطہ ہو رہا ہے…', // TODO: verify Urdu
+  'iot.disconnected': 'ESP32 منقطع', // TODO: verify Urdu
+  'iot.useMock': 'فرضی ڈیٹا پر جائیں', // TODO: verify Urdu
+  'iot.source': 'IoT ڈیٹا کا ذریعہ', // TODO: verify Urdu
+  'iot.mock': 'فرضی', // TODO: verify Urdu
+  'iot.esp32': 'ESP32',
 
   // Common
   'common.cancel': 'منسوخ', // TODO: verify Urdu

@@ -64,6 +64,9 @@ export function LiveFleetMapPage() {
     isConnected,
     lastUpdated,
     consecutiveFailures,
+    deviceError,
+    useMock,
+    setUseMock,
     disruptions,
     isRecalculating,
     recalcTimeMs,
@@ -309,10 +312,15 @@ export function LiveFleetMapPage() {
               </span>
               <span className="text-sm font-medium text-green-700">{t('iot.connected')}</span>
             </>
-          ) : (
+          ) : deviceError ? (
             <>
               <WifiOff className="w-4 h-4 text-red-500" />
               <span className="text-sm font-medium text-red-600">{t('iot.offline')}</span>
+            </>
+          ) : (
+            <>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400" />
+              <span className="text-sm font-medium text-amber-700">{t('iot.connecting')}</span>
             </>
           )}
         </div>
@@ -357,6 +365,21 @@ export function LiveFleetMapPage() {
           {isRouting ? t('fleet.routing') : t('fleet.recalculate')}
         </button>
         <div className="ml-auto flex items-center gap-2">
+          <div role="group" aria-label={t('iot.source')} className="flex rounded border border-gray-300 overflow-hidden text-xs">
+            {([
+              { mock: true, label: t('iot.mock') },
+              { mock: false, label: t('iot.esp32') },
+            ]).map(({ mock, label }) => (
+              <button key={label}
+                onClick={() => setUseMock(mock)}
+                aria-pressed={useMock === mock}
+                className={`px-2 py-1 transition-colors ${
+                  useMock === mock ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
           {deviceIpEdit ? (
             <input className="text-xs border border-gray-300 rounded px-2 py-0.5 w-36 focus:outline-none"
               value={deviceIp} onChange={e => setDeviceIp(e.target.value)}
@@ -476,7 +499,19 @@ export function LiveFleetMapPage() {
               <Wifi className="w-4 h-4 text-blue-600" />
               <h3 className="text-sm font-semibold text-gray-900">{t('iot.liveData')}</h3>
             </div>
-            {!isConnected && consecutiveFailures > 0 && (
+            {deviceError && (
+              <div role="alert" className="mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 space-y-1">
+                <p className="flex items-center gap-2 font-semibold">
+                  <WifiOff className="w-4 h-4 flex-shrink-0" />{t('iot.disconnected')}
+                </p>
+                <p className="break-words">{deviceError}</p>
+                <button onClick={() => setUseMock(true)}
+                  className="underline font-medium hover:text-red-900">
+                  {t('iot.useMock')}
+                </button>
+              </div>
+            )}
+            {!isConnected && consecutiveFailures > 0 && data && (
               <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
                 <WifiOff className="w-4 h-4 flex-shrink-0" />⚠ {t('iot.lastKnown')}
               </div>
@@ -504,7 +539,9 @@ export function LiveFleetMapPage() {
                 {lastUpdated && <p className="text-xs text-gray-400 text-center pt-1">{lastUpdated.toLocaleTimeString()}</p>}
               </div>
             ) : (
-              <p className="text-sm text-gray-400 text-center py-6">Device offline</p>
+              <p className="text-sm text-gray-400 text-center py-6">
+                {deviceError ? t('iot.offline') : t('iot.connecting')}
+              </p>
             )}
           </div>
 
