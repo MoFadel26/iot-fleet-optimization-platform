@@ -115,7 +115,7 @@ Open your browser and go to **<http://localhost:5173>**
 
 ## Running the Tests
 
-The solver has a small test suite (about 15 seconds). In the project folder:
+The solver has a small test suite (under 15 seconds). In the project folder:
 
 ```
 pip install -r requirements-dev.txt

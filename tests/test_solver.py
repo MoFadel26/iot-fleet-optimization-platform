@@ -1,8 +1,9 @@
 """
-Solver tests on small fixed inputs (a few seconds in total).
+Solver tests on small fixed inputs (under 15 seconds in total).
 
 Checks the MILP in optimizer_api.FleetOptimizer against the problem
-constraints and the nearest-neighbour baseline.
+constraints and the nearest-neighbour baseline, both when solved to proven
+optimality and when cut off by the time limit.
 """
 
 import pytest
@@ -13,7 +14,10 @@ from optimizer_api import (
     OptimizationConfig,
     Vehicle,
     build_distance_matrix,
+    generate_data,
+    mip_gap_from_cbc_log,
     solve_baseline,
+    status_label,
 )
 
 DEPOT = (24.7136, 46.6753)  # seed_db.DEPOT
@@ -47,12 +51,24 @@ def make_vehicle(i, capacity=500, cost=1.0, co2=0.1):
 
 
 def solve(locations, vehicles, weights):
+    """Solves to proven optimality (no time limit, zero gap)."""
     w_cost, w_co2, w_fair = weights
     config = OptimizationConfig(w_cost=w_cost, w_co2=w_co2, w_fairness=w_fair,
                                 time_limit_seconds=None, solver_gap=0.0)
     result = FleetOptimizer(locations, vehicles, config).solve()
     assert result["status"] == "Optimal", result
+    assert result["status_label"] == "Optimal" and result["gap_pct"] == 0
     return result
+
+
+def assert_every_stop_once(result, n_customers):
+    visited = []
+    for r in result["routes"].values():
+        route = r["route"]
+        assert route[0] == 0 and route[-1] == 0, route
+        assert 0 not in route[1:-1], route
+        visited.extend(route[1:-1])
+    assert sorted(visited) == list(range(1, n_customers + 1))
 
 
 def weighted_objective(result, weights):
@@ -78,13 +94,7 @@ def tight_case():
 
 def test_every_stop_assigned_exactly_once(tight_case):
     locations, _, result = tight_case
-    visited = []
-    for r in result["routes"].values():
-        route = r["route"]
-        assert route[0] == 0 and route[-1] == 0, route
-        assert 0 not in route[1:-1], route
-        visited.extend(route[1:-1])
-    assert sorted(visited) == list(range(1, len(locations)))
+    assert_every_stop_once(result, len(locations) - 1)
 
 
 def test_vehicle_capacity_respected(tight_case):
@@ -100,6 +110,7 @@ def test_vehicle_capacity_respected(tight_case):
 
 @pytest.mark.parametrize("weights", [(0.5, 0.3, 0.2), (0.7, 0.2, 0.1), (0.2, 0.2, 0.6)])
 def test_milp_not_worse_than_nearest_neighbour(weights):
+    """Under the default 30 s limit and 5% gap, not only when proven optimal."""
     locations = make_locations(TIGHT_DEMANDS)
     vehicles = [
         make_vehicle(0, capacity=TIGHT_CAPACITY, cost=1.8, co2=0.27),
@@ -110,9 +121,32 @@ def test_milp_not_worse_than_nearest_neighbour(weights):
     baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
     assert sum(len(r["route"]) - 2 for r in baseline["routes"].values()) == len(POINTS)
 
-    optimized = solve(locations, vehicles, weights)
+    w_cost, w_co2, w_fair = weights
+    config = OptimizationConfig(w_cost=w_cost, w_co2=w_co2, w_fairness=w_fair)
+    assert (config.time_limit_seconds, config.solver_gap) == (30, 0.05)
+    optimized = FleetOptimizer(locations, vehicles, config).solve()
+    assert optimized["status"] in ("Optimal", "Feasible"), optimized
+    assert_every_stop_once(optimized, len(POINTS))
     # Route totals are rounded to 2 decimals, hence the small tolerance.
     assert weighted_objective(optimized, weights) <= weighted_objective(baseline, weights) + 0.05
+
+
+def test_time_limit_returns_best_found_not_worse_than_baseline():
+    # The optimizer page's default size; proving optimality takes about 45 s,
+    # so a 1 s limit always stops early.
+    locations, vehicles = generate_data(10, 5, seed=42)
+    weights = (0.5, 0.3, 0.2)
+    baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
+    config = OptimizationConfig(w_cost=0.5, w_co2=0.3, w_fairness=0.2,
+                                time_limit_seconds=1, solver_gap=0.0)
+    result = FleetOptimizer(locations, vehicles, config).solve()
+
+    assert result["warm_start"] is True
+    assert result["status"] == "Feasible"
+    assert result["gap_pct"] > 0
+    assert result["status_label"] == f"Best found (gap {result['gap_pct']:.1f}%)"
+    assert_every_stop_once(result, 10)
+    assert weighted_objective(result, weights) <= weighted_objective(baseline, weights) + 0.05
 
 
 def test_higher_co2_weight_lowers_emissions():
@@ -128,3 +162,31 @@ def test_higher_co2_weight_lowers_emissions():
 
     assert co2_heavy["total_co2_kg"] < cost_heavy["total_co2_kg"]
     assert cost_heavy["total_cost_sar"] <= co2_heavy["total_cost_sar"]
+
+
+# CBC log excerpts, one per way a solve can end.
+GAP_EXIT_LOG = """Cbc0011I Exiting as integer gap of 11.092808 less than 1e-10 or 30%
+Result - Optimal solution found (within gap tolerance)
+"""
+TIME_LIMIT_LOG = """Result - Stopped on time limit
+
+Objective value:                35.75403186
+Lower bound:                    27.498
+"""
+PROVEN_LOG = """Result - Optimal solution found
+
+Objective value:                12.51087493
+"""
+
+
+def test_gap_read_from_cbc_log():
+    assert mip_gap_from_cbc_log(GAP_EXIT_LOG, 38.59) == pytest.approx(11.092808 / 38.59)
+    assert mip_gap_from_cbc_log(TIME_LIMIT_LOG, 35.754) == pytest.approx((35.754 - 27.498) / 35.754)
+    assert mip_gap_from_cbc_log(PROVEN_LOG, 12.51) == 0.0
+    assert mip_gap_from_cbc_log("", 12.51) is None
+
+
+def test_status_label():
+    assert status_label(0.0) == "Optimal"
+    assert status_label(0.0312) == "Best found (gap 3.1%)"
+    assert status_label(None) == "Best found (gap unknown)"
