@@ -67,6 +67,11 @@ const WEIGHTS = {
 
 type Objective = keyof typeof WEIGHTS | 'settings';
 
+// Sent with every run; the API falls back to the same values from the seed
+// config when they are omitted.
+const SOLVER_TIME_LIMIT_S = 30;
+const SOLVER_GAP = 0.05;
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 function SpecBadge({ met, label }: { met: boolean; label: string }) {
@@ -134,6 +139,8 @@ export function RouteOptimizationPage() {
           n_customers: nCustomers,
           n_vehicles: nVehicles,
           ...requestWeights(),
+          time_limit: SOLVER_TIME_LIMIT_S,
+          solver_gap: SOLVER_GAP,
           seed: 42,
         }),
       });
@@ -218,7 +225,7 @@ export function RouteOptimizationPage() {
                 <span className="text-sm text-gray-600">Vehicles</span>
                 <Counter value={nVehicles} onChange={setNVehicles} min={2} max={8} />
               </div>
-              <p className="text-xs text-gray-400 pt-1">No time limit · up to 15 customers</p>
+              <p className="text-xs text-gray-400 pt-1">Time limit {SOLVER_TIME_LIMIT_S}s · stops within {SOLVER_GAP * 100}% of optimal · up to 15 customers</p>
             </div>
 
             <Button
@@ -263,7 +270,7 @@ export function RouteOptimizationPage() {
               <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
               <div className="text-center">
                 <p className="text-lg font-medium text-gray-900">Running MILP Optimizer…</p>
-                <p className="text-sm text-gray-500 mt-1">Elapsed: {elapsedSec}s · No time limit</p>
+                <p className="text-sm text-gray-500 mt-1">Elapsed: {elapsedSec}s · limit {SOLVER_TIME_LIMIT_S}s</p>
                 <p className="text-xs text-gray-400 mt-2">{nCustomers} customers · {nVehicles} vehicles</p>
               </div>
             </div>

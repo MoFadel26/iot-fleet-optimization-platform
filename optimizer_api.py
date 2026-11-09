@@ -64,8 +64,8 @@ class OptimizationConfig:
     w_cost: float = 0.5
     w_co2: float = 0.3
     w_fairness: float = 0.2
-    time_limit_seconds: int | None = None  # None = no limit, run to optimal
-    solver_gap: float = 0.0               # 0 = find true optimal, no early exit
+    time_limit_seconds: int | None = 30   # None = no limit, run to optimal
+    solver_gap: float = 0.05              # stop once within 5% of the best bound; 0 = prove optimal
     cost_reduction_target: float = 0.15
     co2_reduction_target: float = 0.10
     min_vehicles_used: int | None = None  # None = solver picks; int = lower bound on vehicles deployed
@@ -98,8 +98,8 @@ def load_default_config() -> OptimizationConfig:
         w_cost=doc.get("w_cost", 0.5),
         w_co2=doc.get("w_co2", 0.3),
         w_fairness=doc.get("w_fairness", 0.2),
-        time_limit_seconds=doc.get("time_limit_seconds", 60),
-        solver_gap=doc.get("solver_gap", 0.25),
+        time_limit_seconds=doc.get("time_limit_seconds", 30),
+        solver_gap=doc.get("solver_gap", 0.05),
         cost_reduction_target=doc.get("cost_reduction_target", 0.15),
         co2_reduction_target=doc.get("co2_reduction_target", 0.10),
     )
@@ -579,19 +579,21 @@ def optimize():
     w_cost      = float(body.get('w_cost',    0.5))
     w_co2       = float(body.get('w_co2',     0.3))
     w_fairness  = float(body.get('w_fairness', 0.2))
-    raw_tl      = body.get('time_limit')
-    time_limit  = int(raw_tl) if raw_tl is not None else None  # None = no limit
+    default_cfg = load_default_config()
+    # Omitted → seed config defaults; an explicit null time_limit → no limit.
+    raw_tl      = body.get('time_limit', default_cfg.time_limit_seconds)
+    time_limit  = max(1, int(raw_tl)) if raw_tl is not None else None
+    solver_gap  = max(0.0, float(body.get('solver_gap', default_cfg.solver_gap)))
     seed        = int(body.get('seed', 42))
 
     locations, vehicles = generate_data(n_customers, n_vehicles, seed=seed)
     dist_matrix = build_distance_matrix(locations)
     baseline = solve_baseline(locations, vehicles, dist_matrix)
 
-    default_cfg = load_default_config()
     config = OptimizationConfig(
         w_cost=w_cost, w_co2=w_co2, w_fairness=w_fairness,
         time_limit_seconds=time_limit,
-        solver_gap=default_cfg.solver_gap,
+        solver_gap=solver_gap,
         cost_reduction_target=default_cfg.cost_reduction_target,
         co2_reduction_target=default_cfg.co2_reduction_target,
     )

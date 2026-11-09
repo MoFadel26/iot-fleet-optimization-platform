@@ -99,8 +99,8 @@ DEFAULT_CONFIG = {
     "w_cost":                 0.5,
     "w_co2":                  0.3,
     "w_fairness":             0.2,
-    "time_limit_seconds":     None,  # no limit — run to true optimal
-    "solver_gap":             0.0,   # 0 = no early exit
+    "time_limit_seconds":     30,    # stop after 30 s with the best routes found (None = no limit)
+    "solver_gap":             0.05,  # stop once within 5% of the best bound (0 = prove optimal)
     "cost_reduction_target":  0.15,
     "co2_reduction_target":   0.10,
 }

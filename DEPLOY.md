@@ -94,5 +94,6 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 ## Notes / known limitations
 
 - The ESP32 IoT device proxy (`/iot-device/...`) is dev-only — it can't be reached from a deployed frontend. The IoT feed defaults to mock telemetry (`VITE_IOT_USE_MOCK`, default `true`); switching the Live Fleet map toggle to **ESP32** in production shows a disconnected state.
+- The solver stops after `time_limit_seconds` (default 30) or once it is within `solver_gap` (default 0.05, i.e. 5%) of the best bound. Both come from the `optimization_config` collection, and the optimizer page sends the same values with each run. A database seeded before these defaults existed has no time limit stored; run `python seed_db.py` once against it to update the config.
 - `vite preview` is used as the static server. It's adequate for this workload; swap to `serve -s dist -l $PORT` (and add `serve` to dev deps) if you outgrow it.
 - The free-tier Railway services may sleep after inactivity; first request after a nap can take 10–30s.
