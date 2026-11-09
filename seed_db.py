@@ -11,7 +11,9 @@ Run once:
 Safe to re-run — it clears and re-inserts each collection.
 """
 
-from db import areas_col, vehicles_col, depot_col, config_col
+import sys
+
+from db import areas_col, vehicles_col, depot_col, config_col, is_offline
 
 # ── 1. Riyadh delivery areas ───────────────────────────────────────────────────
 AREAS = [
@@ -105,6 +107,8 @@ DEFAULT_CONFIG = {
 
 
 def seed():
+    if is_offline():
+        sys.exit("Cannot seed: MongoDB is not configured or not reachable. Check MONGO_URI in .env.")
     print("Seeding MongoDB …")
 
     col = areas_col()

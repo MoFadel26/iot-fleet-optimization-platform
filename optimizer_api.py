@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-from db import areas_col, vehicles_col, depot_col, config_col, runs_col
+from db import areas_col, vehicles_col, depot_col, config_col, runs_col, get_client
 
 load_dotenv()
 
@@ -25,6 +25,10 @@ warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
 CORS(app)
+
+# Connect at startup so a missing/unreachable MongoDB is reported (and the
+# in-memory fallback chosen) before the first request.
+get_client()
 
 
 # ── DATA STRUCTURES ────────────────────────────────────────────────────────────

@@ -70,7 +70,7 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 
 **Backend service**
 
-- `MONGO_URI` *(required)* — MongoDB Atlas connection string
+- `MONGO_URI` *(required for saved runs)* — MongoDB Atlas connection string. If it is missing or Atlas is unreachable at startup, the API logs a warning and serves in-memory seed data; runs are lost on restart, and each gunicorn worker keeps its own copy.
 - `MONGO_DB` *(optional, default `fleet_optimizer`)*
 - `HERE_API_KEY` *(required for geocoding)*
 - `PORT` *(injected by Railway)*

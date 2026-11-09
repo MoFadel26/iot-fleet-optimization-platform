@@ -15,8 +15,9 @@ You will install three free programs. Just download each one and run the install
    Download here: <https://www.python.org/downloads/> — pick the yellow "Download Python" button.
    **Important for Windows users:** on the very first installer screen, tick the box that says **"Add Python to PATH"** before clicking Install.
 
-3. **A free MongoDB Atlas account** (an online database that stores the fleet info)
+3. **A free MongoDB Atlas account** (an online database that stores the fleet info) — optional
    Sign up here: <https://www.mongodb.com/cloud/atlas/register>. After signing up, create a free "M0" cluster and copy the connection string it gives you — you'll paste it in later.
+   Without it, the calculation engine still runs: it uses built-in demo data (the same data `seed_db.py` loads into Atlas) and forgets saved runs when it stops.
 
 You also need a free **HERE Maps** key (for looking up addresses on the map). Sign up at <https://platform.here.com/>, create a project, and copy the API Key.
 
@@ -116,6 +117,6 @@ Open your browser and go to **<http://localhost:5173>**
 
 **If you see: `'python' is not recognized` or `command not found: python`** — Do this: try typing `python3` instead of `python`. If that also fails, reinstall Python from <https://www.python.org/downloads/> and on Windows make sure you tick **"Add Python to PATH"** on the first installer screen.
 
-**If you see: `ServerSelectionTimeoutError` or `Authentication failed`** — Do this: the calculation engine can't reach your database. Open `.env` again and double-check that your `MONGO_URI` line has no typos and that you replaced the `<user>` and `<password>` parts with your real MongoDB username and password. Also go to MongoDB Atlas → **Network Access** and click **Add IP Address → Allow Access from Anywhere**.
+**If you see: `cannot reach MongoDB` or `MONGO_URI is not set ... Using in-memory seed data`** — The calculation engine could not use your database, so it is running on built-in demo data. Everything works, but runs are not saved. To use your database instead, open `.env` again and double-check that your `MONGO_URI` line has no typos and that you replaced the `<user>` and `<password>` parts with your real MongoDB username and password. Also go to MongoDB Atlas → **Network Access** and click **Add IP Address → Allow Access from Anywhere**.
 
 **If you see: the page loads but the map or data is blank** — Do this: the website (Step 6) is running but the calculation engine (Step 5) isn't. Check the first terminal window — if it's empty or shows an error, run `python optimizer_api.py` again and watch for error messages.
