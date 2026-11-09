@@ -32,7 +32,7 @@ Railway pulls code from a GitHub repo. If this project isn't already on GitHub, 
 2. After the first deploy attempt, open the service → **Settings** and confirm:
    - **Root Directory:** `/` (the repo root)
    - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `gunicorn run:app --bind 0.0.0.0:$PORT --workers 2` (also in `Procfile`)
+   - **Start Command:** `gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120` (also in `Procfile`)
 3. **Variables** — add:
 
    | Name | Value |
