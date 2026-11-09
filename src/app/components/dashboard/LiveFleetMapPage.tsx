@@ -18,6 +18,7 @@ import {
   buildPendingStopIcon,
   buildFinalStopIcon,
 } from '@/app/utils/stopMarkers';
+import { RIYADH_CENTER } from '@/app/config/geo';
 
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -27,8 +28,8 @@ L.Icon.Default.mergeOptions({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const DEPOT_LAT = 24.7136;
-const DEPOT_LON = 46.6753;
+const DEPOT_LAT = RIYADH_CENTER.lat;
+const DEPOT_LON = RIYADH_CENTER.lng;
 
 const DRIVER_NAMES = [
   'Mohammed Al-Saud', 'Abdullah Al-Otaibi', 'Khalid Al-Qahtani',

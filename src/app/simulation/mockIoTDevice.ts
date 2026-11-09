@@ -1,3 +1,5 @@
+import { RIYADH_CENTER } from '@/app/config/geo';
+
 export interface IoTPayload {
   temp: number;
   humidity: number;
@@ -12,9 +14,9 @@ export interface IoTPayload {
   gps_fix: boolean;
 }
 
-// SPL Central Post Office — depot / origin for the active driver (Dammam).
-const BASE_LAT = 26.4352;
-const BASE_LON = 50.1082;
+// Riyadh warehouse — depot / origin for the active driver.
+const BASE_LAT = RIYADH_CENTER.lat;
+const BASE_LON = RIYADH_CENTER.lng;
 
 function deriveTempStatus(temp: number): IoTPayload['temp_status'] {
   if (temp >= 32) return 'TOO HOT';

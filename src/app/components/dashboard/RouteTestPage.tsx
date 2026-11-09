@@ -11,6 +11,7 @@ import {
 } from '@/app/utils/streetRouting';
 import { buildPendingStopIcon, buildFinalStopIcon } from '@/app/utils/stopMarkers';
 import { apiUrl } from '@/services/api';
+import { RIYADH_CENTER } from '@/app/config/geo';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ interface RouteResult {
 
 const MAX_CUSTOMERS = 10;
 const MAX_VEHICLES = 6;
-const DEFAULT_CENTER: [number, number] = [24.7136, 46.6753];
+const DEFAULT_CENTER: [number, number] = [RIYADH_CENTER.lat, RIYADH_CENTER.lng];
 
 const PRESET_ADDRESSES = [
   "REMA8928",

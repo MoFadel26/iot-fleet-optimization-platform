@@ -16,6 +16,7 @@ import {
   buildPendingStopIcon,
   buildFinalStopIcon,
 } from '@/app/utils/stopMarkers';
+import { RIYADH_CENTER } from '@/app/config/geo';
 
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -25,8 +26,8 @@ L.Icon.Default.mergeOptions({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const FALLBACK_DEPOT_LAT = 24.7136;
-const FALLBACK_DEPOT_LON = 46.6753;
+const FALLBACK_DEPOT_LAT = RIYADH_CENTER.lat;
+const FALLBACK_DEPOT_LON = RIYADH_CENTER.lng;
 
 function motionArrow(motion: string): string {
   if (motion === 'ACCELERATING') return '↑';

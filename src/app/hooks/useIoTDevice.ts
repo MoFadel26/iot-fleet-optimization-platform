@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { IOT_CONFIG } from '@/app/config/iotConfig';
+import { RIYADH_CENTER } from '@/app/config/geo';
 import { generateMockIoTPayload, IoTPayload } from '@/app/simulation/mockIoTDevice';
 
 // Raw JSON shape the ESP32 firmware sends
@@ -14,8 +15,9 @@ interface ESP32Response {
   sim_status: string;
 }
 
-const BASE_LAT = 24.774265;
-const BASE_LON = 46.738586;
+// The ESP32 has no GPS fix indoors; simulate a position around the depot.
+const BASE_LAT = RIYADH_CENTER.lat;
+const BASE_LON = RIYADH_CENTER.lng;
 
 function mapESP32(raw: ESP32Response, tick: number): IoTPayload {
   const lat = BASE_LAT + 0.0002 * Math.sin(tick * 0.1) * tick * 0.01;
