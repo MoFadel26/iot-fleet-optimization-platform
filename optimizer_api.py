@@ -276,17 +276,10 @@ class FleetOptimizer:
         self.dist = build_distance_matrix(locations)
         self.time_matrix = {v.id: build_time_matrix(self.dist, v.speed_kmh) for v in vehicles}
 
-    def _big_m(self):
-        max_tw = max(loc.time_window_end for loc in self.locations)
-        max_travel = max(float(np.max(tm)) for tm in self.time_matrix.values())
-        max_svc = max(loc.service_time for loc in self.locations)
-        return max_tw + max_travel + max_svc + 10
-
     def solve(self, weights=None, time_limit=None):
         w1, w2, w3 = weights or (self.config.w_cost, self.config.w_co2, self.config.w_fairness)
         tl = time_limit or self.config.time_limit_seconds
         n, m = self.n, self.m
-        M = self._big_m()
         max_range = max(v.max_range for v in self.vehicles)
 
         t0 = time.time()
@@ -330,6 +323,9 @@ class FleetOptimizer:
             prob += pulp.lpSum(
                 self.dist[i][j] * x[i, j, k]
                 for i in range(n) for j in range(n) if i != j) <= self.vehicles[k].max_range
+            # A customer can only be visited by a vehicle that leaves the depot.
+            for j in self.customers:
+                prob += pulp.lpSum(x[i, j, k] for i in range(n) if i != j) <= y[k]
             for i in self.customers:
                 for j in self.customers:
                     if i != j:
@@ -338,8 +334,13 @@ class FleetOptimizer:
             for i in range(n):
                 for j in self.customers:
                     if i != j:
-                        prob += (s[j, k] >= s[i, k] + self.locations[i].service_time
-                                 + self.time_matrix[vid][i][j] - M * (1 - x[i, j, k]))
+                        # Smallest big-M that keeps the constraint valid when
+                        # x=0: s_j >= e_j >= s_i + svc_i + t_ij - M_ij for any
+                        # s_i <= l_i.
+                        lead = self.locations[i].service_time + self.time_matrix[vid][i][j]
+                        m_ij = max(0.0, self.locations[i].time_window_end + lead
+                                   - self.locations[j].time_window_start)
+                        prob += (s[j, k] >= s[i, k] + lead - m_ij * (1 - x[i, j, k]))
             shift = self.vehicles[k].max_shift_hours * 60
             prob += pulp.lpSum(
                 (self.time_matrix[vid][i][j] + self.locations[i].service_time) * x[i, j, k]
@@ -348,7 +349,11 @@ class FleetOptimizer:
                 self.dist[i][j] * x[i, j, k]
                 for i in range(n) for j in range(n) if i != j)
             prob += L_max >= L[k]
-            prob += L_min <= L[k] + M * (1 - y[k])
+            # L_min <= max_range always, so max_range is a valid big-M here. The
+            # time-based M let the LP relaxation push L_min far above every
+            # route length, making the fairness term (and the bound) negative.
+            prob += L_min <= L[k] + max_range * (1 - y[k])
+        prob += L_min <= L_max
 
         # Optional minimum-fleet-deployment constraint.
         # When set, force the solver to use at least this many vehicles.
