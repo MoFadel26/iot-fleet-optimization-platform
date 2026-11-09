@@ -86,8 +86,8 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 
 ## Local development
 
-1. Backend: `pip install -r requirements.txt`, then `python optimizer_api.py` or `python run.py`. Both listen on `:5000` (override with `PORT`).
-2. Frontend: `npm install`, then `npm run dev`. The frontend calls `http://localhost:5000` unless `VITE_API_URL` is set.
+1. Backend: `pip install -r requirements.txt`, then `python optimizer_api.py` or `python run.py`. Both listen on `:5001` (override with `PORT`). Not 5000, because macOS AirPlay Receiver listens there.
+2. Frontend: `npm install`, then `npm run dev`. The frontend calls `http://localhost:5001` unless `VITE_API_URL` is set.
 
 ---
 

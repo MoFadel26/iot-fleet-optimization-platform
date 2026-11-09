@@ -854,7 +854,7 @@ def geocode():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5001))
     print(f"VRP Optimizer API — http://localhost:{port}")
     print("Install:  pip install flask flask-cors pulp numpy pymongo python-dotenv requests")
     app.run(host='0.0.0.0', port=port, debug=False)

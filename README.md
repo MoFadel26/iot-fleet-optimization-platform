@@ -89,7 +89,9 @@ Type this and press Enter. Leave this terminal window open — closing it will s
 python optimizer_api.py
 ```
 
-If `python` is not found, try `python3` instead. You should see a message that ends with `http://localhost:5000`. That means it's working.
+If `python` is not found, try `python3` instead. You should see a message that ends with `http://localhost:5001`. That means it's working.
+
+The calculation engine uses port 5001, not the more common 5000, because macOS uses port 5000 for AirPlay Receiver.
 
 ### Step 6 — Start the website
 
@@ -130,10 +132,11 @@ It does not need MongoDB.
 
 **If you see: `cannot reach MongoDB` or `MONGO_URI is not set ... Using in-memory seed data`** — The calculation engine could not use your database, so it is running on built-in demo data. Everything works, but runs are not saved. To use your database instead, open `.env` again and double-check that your `MONGO_URI` line has no typos and that you replaced the `<user>` and `<password>` parts with your real MongoDB username and password. Also go to MongoDB Atlas → **Network Access** and click **Add IP Address → Allow Access from Anywhere**.
 
-**If you see: `Address already in use` / `Port 5000 is in use by another program` (Mac)** — Do this: macOS uses port 5000 for AirPlay Receiver. Either turn it off in **System Settings → General → AirDrop & Handoff → AirPlay Receiver**, or add these two lines to `.env` and restart both terminals:
+**If you see: `Address already in use` / `Port 5001 is in use by another program`** — Do this: another program is using port 5001. Close it, or pick a free port by adding these two lines to `.env` (both must use the same number) and restart both terminals:
 ```
-PORT=5001
-VITE_API_URL=http://localhost:5001
+PORT=5002
+VITE_API_URL=http://localhost:5002
 ```
+Avoid port 5000 on a Mac: macOS uses it for AirPlay Receiver.
 
 **If you see: the page loads but the map or data is blank** — Do this: the website (Step 6) is running but the calculation engine (Step 5) isn't. Check the first terminal window — if it's empty or shows an error, run `python optimizer_api.py` again and watch for error messages.
