@@ -86,8 +86,8 @@ Visit the frontend domain. The map should load and `/fleet-routes`, `/optimize`,
 
 ## Local development
 
-1. Backend: `pip install -r requirements.txt`, then `python run.py` (listens on `:5000`) or `python optimizer_api.py` (listens on `:5001`).
-2. Frontend: `npm install`, set `VITE_API_URL` in `.env` to match whichever Flask port you chose, then `npm run dev`.
+1. Backend: `pip install -r requirements.txt`, then `python optimizer_api.py` or `python run.py`. Both listen on `:5000` (override with `PORT`).
+2. Frontend: `npm install`, then `npm run dev`. The frontend calls `http://localhost:5000` unless `VITE_API_URL` is set.
 
 ---
 

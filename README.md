@@ -86,7 +86,7 @@ Type this and press Enter. Leave this terminal window open — closing it will s
 python optimizer_api.py
 ```
 
-If `python` is not found, try `python3` instead. You should see a message that ends with `http://localhost:5001`. That means it's working.
+If `python` is not found, try `python3` instead. You should see a message that ends with `http://localhost:5000`. That means it's working.
 
 ### Step 6 — Start the website
 
