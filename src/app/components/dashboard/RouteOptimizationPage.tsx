@@ -39,7 +39,10 @@ interface ApiResult {
     vehicles_used: number;
     fleet_utilization: number;
     workload_balance: number;
-    status: string;
+    status: 'Optimal' | 'Feasible';
+    /** 'Optimal' when proven, otherwise 'Best found (gap X%)'. */
+    status_label: string;
+    gap_pct: number | null;
     solve_time_s: number;
     routes: Record<string, RouteEntry>;
   };
@@ -242,7 +245,7 @@ export function RouteOptimizationPage() {
                 { label: t('optimization.fleetSize'),   value: opt ? `${opt.vehicles_used}/${nVehicles} active` : `${nVehicles} configured` },
                 { label: t('optimization.algorithm'),   value: 'MILP (PuLP/CBC)' },
                 { label: t('route.solveTime'),           value: opt ? `${opt.solve_time_s}s` : '—' },
-                { label: 'Solver status:',               value: opt ? opt.status : '—' },
+                { label: 'Solver status:',               value: opt ? opt.status_label : '—' },
               ].map(({ label, value }) => (
                 <div key={label} className={`flex justify-between ${isRTL ? 'flex-row-reverse' : ''}`}>
                   <span>{label}</span>
@@ -310,7 +313,7 @@ export function RouteOptimizationPage() {
                 </div>
                 <div className="text-right text-xs text-gray-500">
                   <p>Solved in <span className="font-semibold text-gray-900">{opt.solve_time_s}s</span></p>
-                  <p>Status: <span className="font-semibold text-green-700">{opt.status}</span></p>
+                  <p>Status: <span className={`font-semibold ${opt.status === 'Optimal' ? 'text-green-700' : 'text-amber-600'}`}>{opt.status_label}</span></p>
                   <p>{apiResult.n_customers} customers · {apiResult.n_vehicles} vehicles</p>
                 </div>
               </div>
