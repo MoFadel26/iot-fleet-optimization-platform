@@ -190,3 +190,25 @@ def test_status_label():
     assert status_label(0.0) == "Optimal"
     assert status_label(0.0312) == "Best found (gap 3.1%)"
     assert status_label(None) == "Best found (gap unknown)"
+
+
+@pytest.mark.parametrize("service_time", [5, 0])
+def test_no_subtours_when_stops_share_coordinates(service_time):
+    """Stops at the same spot have zero travel time between them.
+
+    With service_time > 0 the MTZ constraints are skipped and the time
+    windows must still rule out a closed loop between the twins; with
+    service_time == 0 the solver has to fall back to MTZ. A subtour would
+    leave those stops off every depot route.
+    """
+    depot = Location(id=0, name="Depot", lat=DEPOT[0], lon=DEPOT[1],
+                     time_window_start=0, time_window_end=1440)
+    spots = [POINTS[0], POINTS[0], POINTS[0], POINTS[3], POINTS[3]]
+    customers = [
+        Location(id=i + 1, name=f"C{i + 1}", lat=lat, lon=lon, demand=20,
+                 service_time=service_time, time_window_start=0, time_window_end=1440)
+        for i, (lat, lon) in enumerate(spots)
+    ]
+    vehicles = [make_vehicle(0), make_vehicle(1)]
+    result = solve([depot] + customers, vehicles, (0.5, 0.3, 0.2))
+    assert_every_stop_once(result, len(customers))
