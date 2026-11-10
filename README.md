@@ -1,142 +1,113 @@
 # IoT Fleet Optimization Platform
 
-## What This Does
+An intelligent, multi-objective fleet dispatching and routing platform that combines **operations research and mathematical optimization** with **real-time IoT telemetry** for last-mile logistics.
 
-This is a website that helps you plan the best driving routes for a fleet of vehicles, using live data from internet-connected sensors.
+---
 
-## What You Need to Install First
+## 1. The Idea & The Challenge
 
-You will install three free programs. Just download each one and run the installer — click "Next" through every screen and accept the defaults.
+Last-mile delivery is one of the most expensive and carbon-intensive segments of modern supply chains. Fleet managers face three conflicting goals:
 
-1. **Node.js** (lets your computer run the website code)
-   Download here: <https://nodejs.org/en/download> — pick the big green "LTS" button.
+1. **Economic Cost**: Fuel expenses, driver hours, and vehicle wear-and-tear.
+2. **Environmental Footprint ($CO_2$)**: Fleet decarbonization and sustainable transition toward Electric Vehicles (EVs) subject to battery range constraints.
+3. **Workload Equity**: Preventing driver fatigue and unfair schedule distributions across the workforce.
 
-2. **Python** (lets your computer run the calculation engine in the background)
-   Download here: <https://www.python.org/downloads/> — pick the yellow "Download Python" button.
-   **Important for Windows users:** on the very first installer screen, tick the box that says **"Add Python to PATH"** before clicking Install.
+Standard navigation apps and greedy route planners (like nearest-neighbor heuristics) only look at shortest distances. Furthermore, static routing schedules break down in practice due to real-world physical events—such as traffic delays, cargo temperature spikes, or vehicle breakdowns.
 
-3. **A free MongoDB Atlas account** (an online database that stores the fleet info) — optional
-   Sign up here: <https://www.mongodb.com/cloud/atlas/register>. After signing up, create a free "M0" cluster and copy the connection string it gives you — you'll paste it in later.
-   Without it, the calculation engine still runs: it uses built-in demo data (the same data `seed_db.py` loads into Atlas) and forgets saved runs when it stops.
+---
 
-You also need a free **HERE Maps** key (for looking up addresses on the map). Sign up at <https://platform.here.com/>, create a project, and copy the API Key.
+## 2. The Project Overview
 
-## How to Download This Project
+This platform provides an end-to-end operational system connecting managers, drivers, and vehicles:
 
-1. Open this page in your browser: the GitHub page for this project.
-2. Look for the green **"Code"** button near the top right and click it.
-3. In the small menu that opens, click **"Download ZIP"**.
-4. A file called something like `Iotfleetoptimizationplatform-main.zip` will save to your **Downloads** folder.
-5. Find that file in your Downloads folder, **right-click it**, and choose **"Extract All"** (Windows) or **double-click it** (Mac). This creates a normal folder with the same name.
-6. Move that folder somewhere easy to find, like your **Desktop**.
-
-## How to Run It
-
-You will need to open a "terminal" twice. A terminal is just a window where you type commands.
-
-- **On Windows:** click the Start menu, type `PowerShell`, and press Enter.
-- **On Mac:** press `Command + Space`, type `Terminal`, and press Enter.
-
-### Step 1 — Go into the project folder
-
-In the terminal, type this and press Enter. This tells the terminal to "look inside" the project folder. If you put it on your Desktop, this command will work as-is:
+- **Web Command Dashboard**: Interactive live fleet map, route test sandboxes with Saudi address geocoding, multi-objective optimization tuning, and compliance audits.
+- **Driver Mobile Experience**: Real-time stop execution, turn-by-turn navigation, cargo health monitoring, and issue reporting.
+- **Real-Time IoT Telemetry**: Telemetry streaming (cargo temperature, motion states, speed, GPS) paired with an automated disruption detection engine.
 
 ```
-cd Desktop/Iotfleetoptimizationplatform-main
+[Customer Orders & Depot] ──► [Mathematical Optimization Engine]
+                                         │
+                                         ▼
+                            [Optimized Dispatch Plan]
+                                   │          │
+                     (Fleet Manager)          (Mobile Driver)
+                                   ▲          │
+                                   │          ▼
+                        [Automated Reroute] ◄── [IoT Disruption Detector]
 ```
 
-### Step 2 — Create the settings file
+---
 
-This project needs a small file called `.env` that holds your database password and map key. Type this and press Enter to make a copy of the example file:
+## 3. The Optimization & Machine Learning Engine
 
-**On Mac:**
-```
-cp .env.example .env
-```
+The core calculation service models the delivery network as a **Multi-Objective Vehicle Routing Problem with Time Windows (MO-VRPTW)**, formulated as a **Mixed-Integer Linear Program (MILP)** solved using the **COIN-OR Branch-and-Cut (CBC)** engine.
 
-**On Windows:**
-```
-copy .env.example .env
-```
+### A. Decision Variables
 
-Now open the new `.env` file in any text editor (Notepad on Windows, TextEdit on Mac). You'll see lines like `MONGO_URI=` and `HERE_API_KEY=`. Replace the value after the `=` on the `MONGO_URI` line with your MongoDB connection string, and the value on the `HERE_API_KEY` line with your HERE key. Leave the other lines as they are. Save and close the file.
+- $x_{ijk} \in \{0, 1\}$: Binary arc choice: equals $1$ if vehicle $k$ drives directly from location $i$ to location $j$.
+- $y_k \in \{0, 1\}$: Binary deployment choice: equals $1$ if vehicle $k$ leaves the depot.
+- $s_{ik} \ge 0$: Arrival / service start time of vehicle $k$ at stop $i$.
+- $L_k \ge 0$: Total route distance driven by vehicle $k$.
+- $L_{\max}, L_{\min} \ge 0$: Minimax auxiliary bounds measuring driver workload spread.
 
-Every variable is described in `.env.example`.
+---
 
-### Step 3 — Install the website's building blocks
+### B. Multi-Objective Function
 
-Type this and press Enter. This downloads all the small pieces of code the website is built from. It will take a few minutes and print a lot of text — that's normal.
+Rather than minimizing pure travel distance, the solver uses a parameterized scalarization that allows fleet operators to balance three competing objectives:
 
-```
-npm install
-```
+$$\min \quad w_{\text{cost}} \cdot \text{Cost} \;+\; w_{\text{co2}} \cdot \text{CO}_2 \;+\; w_{\text{fairness}} \cdot \text{Fairness}$$
 
-### Step 4 — Install the calculation engine's building blocks
+$$\text{Cost} = \sum_{k} \sum_{i} \sum_{j \neq i} c_k \cdot d_{ij} \cdot x_{ijk}$$
 
-Type this and press Enter. This downloads the pieces the Python background service needs.
+$$\text{CO}_2 = \sum_{k} \sum_{i} \sum_{j \neq i} e_k \cdot d_{ij} \cdot x_{ijk}$$
 
-```
-pip install -r requirements.txt
-```
+$$\text{Fairness} = L_{\max} - L_{\min}$$
 
-If `pip` is not found, try `pip3` instead.
+- **Cost Optimization ($c_k$)**: Considers vehicle-specific fuel/electricity operating costs per kilometer.
+- **$CO_2$ Decarbonization ($e_k$)**: Differentiates internal combustion engines (ICE), hybrids, and zero-tailpipe-emission electric vehicles (EVs).
+- **Workload Balance**: Minimizes the difference between the longest and shortest routes across active drivers ($L_{\max} - L_{\min}$).
 
-### Step 5 — Start the calculation engine (background service)
+---
 
-Type this and press Enter. Leave this terminal window open — closing it will stop the service.
+### C. Operational Constraints
 
-```
-python optimizer_api.py
-```
+1. **Guaranteed Delivery**: Every customer is served exactly once by one vehicle.
+2. **Network Flow Conservation**: If a vehicle arrives at a stop, it must leave that stop.
+3. **Heterogeneous Vehicle Capacity**: Cargo demand on route $k$ cannot exceed vehicle capacity $Q_k$.
+4. **EV Range Limits**: Total route distance cannot exceed the vehicle's maximum driving range $R_k$.
+5. **Time Windows (Big-M Formulation)**: Deliveries must occur within customer time windows $[e_j, l_j]$:
+   $$s_{jk} \ge s_{ik} + \tau_i + t_{ijk} - M_{ij}(1 - x_{ijk})$$
+   *(where $\tau_i$ is service time, $t_{ijk}$ is travel time, and $M_{ij}$ is the minimum valid upper bound)*.
+6. **Maximum Driver Shift**: Cumulative driving and service duration cannot violate driver shift limits $T_k^{\max}$.
+7. **Fairness Envelope**: Enforces $L_{\max} \ge L_k$ and $L_{\min} \le L_k$ for all active vehicles.
 
-If `python` is not found, try `python3` instead. You should see a message that ends with `http://localhost:5001`. That means it's working.
+---
 
-The calculation engine uses port 5001, not the more common 5000, because macOS uses port 5000 for AirPlay Receiver.
+### D. Heuristic Warm-Start & Street-Level Geometry
 
-### Step 6 — Start the website
+- **Greedy Baseline Heuristic**: A nearest-neighbor algorithm rapidly constructs a valid baseline.
+- **MIP Warm-Start Injection**: The baseline is injected as the initial feasible integer solution (incumbent) into the Branch-and-Cut solver, ensuring fast convergence and guaranteeing that the solver's output is always as good as or better than the heuristic.
+- **Road-Network Projection**: Solved point-to-point sequences are projected onto real street networks using OpenStreetMap / OSRM routing.
 
-Open a **second** terminal window (same way as before). Go into the project folder again:
+---
 
-```
-cd Desktop/Iotfleetoptimizationplatform-main
-```
+## 4. Closed-Loop IoT Disruption Feedback
 
-Then type this and press Enter:
+When vehicles are in transit, continuous telemetry is evaluated against operating thresholds:
 
-```
-npm run dev
-```
+| IoT Sensor / Event | Detected Condition | Algorithmic Reaction |
+|---|---|---|
+| **Cargo Temperature** | Exceeds perishable safety threshold ($>32^\circ\text{C}$) | Raises critical alert; flags route for emergency priority delivery or depot return. |
+| **Motion & Speed** | Prolonged unplanned stop or sharp deceleration | Identifies vehicle breakdown or road accident. |
+| **GPS Fix & Connectivity** | Lost satellite lock or dropped packets | Flags connection reliability and triggers fallback estimation. |
+| **Dynamic Recalculation** | Triggered by active disruption | Perturbs affected waypoints and recalculates alternative street routes around bottlenecks. |
 
-After a few seconds you'll see a line that says something like `Local: http://localhost:5173/`.
+---
 
-### Step 7 — Open the website
+## 5. Technology Stack Summary
 
-Open your browser and go to **<http://localhost:5173>**
-
-## Running the Tests
-
-The solver has a small test suite (under 15 seconds). In the project folder:
-
-```
-pip install -r requirements-dev.txt
-python -m pytest
-```
-
-It does not need MongoDB.
-
-## If Something Goes Wrong
-
-**If you see: `'npm' is not recognized` or `command not found: npm`** — Do this: Node.js isn't installed yet, or you need to close and reopen the terminal so it notices the new install. Reinstall from <https://nodejs.org/en/download> and open a fresh terminal.
-
-**If you see: `'python' is not recognized` or `command not found: python`** — Do this: try typing `python3` instead of `python`. If that also fails, reinstall Python from <https://www.python.org/downloads/> and on Windows make sure you tick **"Add Python to PATH"** on the first installer screen.
-
-**If you see: `cannot reach MongoDB` or `MONGO_URI is not set ... Using in-memory seed data`** — The calculation engine could not use your database, so it is running on built-in demo data. Everything works, but runs are not saved. To use your database instead, open `.env` again and double-check that your `MONGO_URI` line has no typos and that you replaced the `<user>` and `<password>` parts with your real MongoDB username and password. Also go to MongoDB Atlas → **Network Access** and click **Add IP Address → Allow Access from Anywhere**.
-
-**If you see: `Address already in use` / `Port 5001 is in use by another program`** — Do this: another program is using port 5001. Close it, or pick a free port by adding these two lines to `.env` (both must use the same number) and restart both terminals:
-```
-PORT=5002
-VITE_API_URL=http://localhost:5002
-```
-Avoid port 5000 on a Mac: macOS uses it for AirPlay Receiver.
-
-**If you see: the page loads but the map or data is blank** — Do this: the website (Step 6) is running but the calculation engine (Step 5) isn't. Check the first terminal window — if it's empty or shows an error, run `python optimizer_api.py` again and watch for error messages.
+- **Optimization Core**: Python, PuLP, COIN-OR CBC MILP Solver, NumPy.
+- **Backend API**: Flask, Gunicorn, MongoDB.
+- **Frontend Dashboard & Mobile App**: React 18, TypeScript, Tailwind CSS, Leaflet.
+- **IoT & Hardware Integration**: ESP32 firmware, DHT temperature/humidity sensors, accelerometer motion states.
