@@ -41,6 +41,7 @@ interface FleetRoutesResponse {
   depot: Depot;
   vehicles: FleetVehicle[];
   source: 'optimized' | 'baseline';
+  distance_source: 'road' | 'straight_line';
 }
 
 type RouteContextValue = {

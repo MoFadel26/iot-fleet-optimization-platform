@@ -60,6 +60,8 @@ interface ApiResult {
     spec3_met: boolean;
     spec2_met: boolean;
   };
+  /** 'road': HERE road distances and travel times. 'straight_line': the fallback. */
+  distance_source: 'road' | 'straight_line';
 }
 
 const WEIGHTS = {
@@ -331,6 +333,7 @@ export function RouteOptimizationPage() {
                   <p>Solved in <span className="font-semibold text-gray-900">{opt.solve_time_s}s</span></p>
                   <p>Status: <span className={`font-semibold ${opt.status === 'Optimal' ? 'text-green-700' : 'text-amber-600'}`}>{opt.status_label}</span></p>
                   <p>{apiResult.n_customers} customers · {apiResult.n_vehicles} vehicles</p>
+                  <p>Distances: <span className="font-semibold text-gray-900">{apiResult.distance_source === 'road' ? 'road network' : 'straight line'}</span></p>
                 </div>
               </div>
 
