@@ -56,7 +56,9 @@ The core calculation service models the delivery network as a **Multi-Objective 
 
 Rather than minimizing pure travel distance, the solver uses a parameterized scalarization that allows fleet operators to balance three competing objectives:
 
-$$\min \quad w_{\text{cost}} \cdot \text{Cost} \;+\; w_{\text{co2}} \cdot \text{CO}_2 \;+\; w_{\text{fairness}} \cdot \text{Fairness}$$
+$$\min \quad w_{\text{cost}} \cdot \frac{\text{Cost}}{\text{Cost}^{\text{NN}}} \;+\; w_{\text{co2}} \cdot \frac{\text{CO}_2}{\text{CO}_2^{\text{NN}}} \;+\; w_{\text{fairness}} \cdot \frac{\text{Fairness}}{L_{\max}^{\text{NN}}}$$
+
+Each term is divided by its value in the nearest-neighbor baseline plan (section D): the baseline's total cost $\text{Cost}^{\text{NN}}$, its total $CO_2$ $\text{CO}_2^{\text{NN}}$, and the length of its longest route $L_{\max}^{\text{NN}}$. All three terms are then unitless fractions of the baseline, so the weights compare like with like and the routes do not change with the currency or the $CO_2$ unit. If the baseline's cost or $CO_2$ is zero because every vehicle it used has a zero rate, the baseline distance priced at the fleet's mean rate is used instead.
 
 $$\text{Cost} = \sum_{k} \sum_{i} \sum_{j \neq i} c_k \cdot d_{ij} \cdot x_{ijk}$$
 
@@ -79,7 +81,7 @@ $$\text{Fairness} = L_{\max} - L_{\min}$$
 5. **Time Windows (Big-M Formulation)**: Deliveries must occur within customer time windows $[e_j, l_j]$:
    $$s_{jk} \ge s_{ik} + \tau_i + t_{ijk} - M_{ij}(1 - x_{ijk})$$
    *(where $\tau_i$ is service time, $t_{ijk}$ is travel time, and $M_{ij}$ is the minimum valid upper bound)*.
-6. **Maximum Driver Shift**: Cumulative driving and service duration cannot violate driver shift limits $T_k^{\max}$.
+6. **Maximum Driver Shift**: The time from leaving the depot to returning to it (driving, service, and waiting for time windows to open) cannot exceed the driver shift limit $T_k^{\max}$.
 7. **Fairness Envelope**: Enforces $L_{\max} \ge L_k$ and $L_{\min} \le L_k$ for all active vehicles.
 
 ---
