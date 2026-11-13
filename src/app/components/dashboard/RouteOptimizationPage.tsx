@@ -255,7 +255,7 @@ export function RouteOptimizationPage() {
             <div className="space-y-2 text-sm text-gray-600">
               {[
                 { label: t('optimization.fleetSize'),   value: opt ? `${opt.vehicles_used}/${nVehicles} active` : `${nVehicles} configured` },
-                { label: t('optimization.algorithm'),   value: 'MILP (PuLP/CBC)' },
+                { label: t('optimization.algorithm'),   value: 'MILP (PuLP/HiGHS)' },
                 { label: t('route.solveTime'),           value: opt ? `${opt.solve_time_s}s` : '—' },
                 { label: 'Solver status:',               value: opt ? opt.status_label : '—' },
               ].map(({ label, value }) => (
