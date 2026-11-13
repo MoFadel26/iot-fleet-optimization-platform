@@ -10,7 +10,7 @@ Any host that can run Python 3.10+ (tested on 3.14) and serve static files (or r
 You will also need:
 
 - A **MongoDB Atlas** database (`MONGO_URI`) to keep optimization runs. Without one the API still works on built-in seed data (see [Backend](#backend)).
-- A **HERE Maps** API key (`HERE_API_KEY`) for address lookup on the Route Test page.
+- A **HERE Maps** API key (`HERE_API_KEY`) for address lookup on the Route Test page and for road distances and travel times in the optimizer. Without one the optimizer still works, on straight-line distances at each vehicle's fixed speed (see [Backend](#backend)).
 
 ---
 
@@ -58,7 +58,7 @@ gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
 | --- | --- | --- |
 | `MONGO_URI` | For saved runs | Atlas connection string. If it is missing or Atlas is unreachable at startup, the API logs a warning and serves in-memory seed data; runs are lost on restart, and each gunicorn worker keeps its own copy. |
 | `MONGO_DB` | No | Database name, default `fleet_optimizer`. |
-| `HERE_API_KEY` | For geocoding | HERE API key. Without it `/api/geocode` returns `missing_api_key`. |
+| `HERE_API_KEY` | For geocoding and road distances | HERE API key, used for the Geocoding API and the Matrix Routing API v8. Without it `/api/geocode` returns `missing_api_key`, and the optimizer uses straight-line distances at each vehicle's fixed speed instead of road distances and travel times. It does the same, with a warning in the log, when the HERE request fails. Responses say which was used in `distance_source` (`road` or `straight_line`). |
 | `PORT` | Yes | Port to bind, used in the start command above. |
 
 **Check it:** `GET https://<backend-host>/health` returns `{"solver":"PuLP/CBC","status":"ok"}`.
