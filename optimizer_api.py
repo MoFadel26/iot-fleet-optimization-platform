@@ -1,7 +1,7 @@
 """
 Multi-Objective VRP Optimizer — Flask API
 Run:  python optimizer_api.py
-Deps: pip install flask flask-cors pulp numpy pymongo python-dotenv requests
+Deps: pip install flask flask-cors pulp highspy numpy pymongo python-dotenv requests
 """
 
 import os
@@ -11,7 +11,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pulp
 import numpy as np
-import functools, math, re, tempfile, time, warnings
+import functools, math, time, warnings
 import requests
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -374,27 +374,37 @@ def solve_baseline(locations, vehicles, dist_matrix, road_time=None):
 
 # ── MILP OPTIMIZER ─────────────────────────────────────────────────────────────
 
-def mip_gap_from_cbc_log(log: str, objective: float | None):
-    """Relative gap (obj - bound) / |obj| of CBC's final solution.
+class HiGHSWithStart(pulp.HiGHS):
+    """pulp.HiGHS plus a MIP start, which PuLP 3.3.2 does not pass to HiGHS.
 
-    Returns 0.0 when CBC proved optimality, the gap when it stopped on the time
-    limit or the gap tolerance, and None if the log does not say.
+    Relies on PuLP internals, hence pulp<4 in requirements.txt:
+    buildSolverModel puts the highspy.Highs object in lp.solverModel and each
+    variable's column number in var.index.
     """
-    m = re.search(r"Exiting as integer gap of ([-\d.eE+]+)", log)
-    if m:
-        abs_gap = float(m.group(1))
-    elif "Stopped on time limit" in log:
-        m = re.search(r"Lower bound:\s+([-\d.eE+]+)", log)
-        if not m or objective is None:
-            return None
-        abs_gap = objective - float(m.group(1))
-    elif re.search(r"Result - Optimal solution found\s*$", log, re.MULTILINE):
-        return 0.0
-    else:
+
+    def __init__(self, warmStart=False, **kwargs):
+        super().__init__(**kwargs)
+        self.warmStart = warmStart
+
+    def buildSolverModel(self, lp):
+        super().buildSolverModel(lp)
+        if self.warmStart:
+            # Only the variables given a start value; HiGHS solves an LP for
+            # the others.
+            start = [v for v in lp.variables() if v.varValue is not None]
+            lp.solverModel.setSolution(len(start), [v.index for v in start],
+                                       [v.varValue for v in start])
+
+
+def mip_gap(highs):
+    """Relative gap (obj - bound) / |obj| of HiGHS's final solution.
+
+    Returns 0.0 when HiGHS proved optimality, the gap when it stopped on the
+    time limit or the gap tolerance, and None if HiGHS has no finite gap.
+    """
+    gap = highs.getInfo().mip_gap
+    if not math.isfinite(gap):
         return None
-    if objective is None or abs(objective) < 1e-9:
-        return None
-    gap = max(0.0, abs_gap / abs(objective))
     return 0.0 if gap < 1e-6 else gap
 
 
@@ -452,7 +462,7 @@ class FleetOptimizer:
     def _set_warm_start(self, x, y, base):
         """Loads the nearest-neighbour routes as the MILP start, if they are feasible.
 
-        CBC keeps this start as its incumbent, so a solve stopped by the time
+        HiGHS keeps this start as its incumbent, so a solve stopped by the time
         limit still returns a solution at least as good as the baseline.
         Returns True if the start was set.
         """
@@ -516,9 +526,10 @@ class FleetOptimizer:
             for k in range(m) for i in range(n) for j in range(n) if i != j)
         base = solve_baseline(self.locations, self.vehicles, self.dist, self.road_time)
         cost_ref, co2_ref, fair_ref = self._objective_refs(base)
-        # In percent of the baseline, not as a fraction: CBC logs the lower
-        # bound with 3 decimals, which is too coarse to read the gap from when
-        # the objective is near 1.
+        # In percent of the baseline, not as a fraction: HiGHS also stops as
+        # optimal once the absolute gap is under 1e-6 (mip_abs_gap), which for
+        # an objective near 1 is a relative gap above the 1e-6 under which
+        # mip_gap() reports 0.
         prob += 100 * (w1 * cost_expr / cost_ref + w2 * co2_expr / co2_ref
                        + w3 * (L_max - L_min) / fair_ref)
 
@@ -607,36 +618,18 @@ class FleetOptimizer:
             prob += pulp.lpSum(y[k] for k in range(m)) >= self.config.min_vehicles_used
 
         warm = self._set_warm_start(x, y, base)
-        # msg=0 plus logPath: CBC's output goes to the file, which is the only
-        # place it reports the remaining gap.
-        # A directory, not NamedTemporaryFile: Windows can't reopen an open temp file.
-        with tempfile.TemporaryDirectory() as tmp:
-            log_path = os.path.join(tmp, "cbc.log")
-            solver_kwargs = {"gapRel": self.config.solver_gap, "msg": 0,
-                             "warmStart": warm, "logPath": log_path}
-            if tl is not None:
-                solver_kwargs["timeLimit"] = tl
-            prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
-            with open(log_path) as f:
-                cbc_log = f.read()
-            # CBC 2.10 can fix every integer in preprocessing and then return a
-            # solution that breaks constraints, labelled optimal (seen when no
-            # route plan fits the shifts). Its log says so; solve again without
-            # preprocessing.
-            if "Postprocessed model is infeasible" in cbc_log:
-                prob.solve(pulp.PULP_CBC_CMD(options=["preprocess off"], **solver_kwargs))
-                with open(log_path) as f:
-                    cbc_log = f.read()
+        prob.solve(HiGHSWithStart(msg=False, gapRel=self.config.solver_gap,
+                                  timeLimit=tl, warmStart=warm))
         elapsed = time.time() - t0
 
-        # PuLP reports "Optimal" whenever CBC returns a solution, including one
-        # stopped by the time limit or the gap tolerance; sol_status tells
+        # PuLP reports "Optimal" whenever HiGHS returns a solution, including
+        # one stopped by the time limit or the gap tolerance; sol_status tells
         # whether any integer solution exists.
         if prob.sol_status not in (pulp.LpSolutionOptimal, pulp.LpSolutionIntegerFeasible):
             status = pulp.LpStatus[prob.status]
             return {"status": status, "error": f"Solver: {status}", "solve_time_s": round(elapsed, 2)}
 
-        gap = mip_gap_from_cbc_log(cbc_log, pulp.value(prob.objective))
+        gap = mip_gap(prob.solverModel)
         result = self._extract(prob, x, y, s, "Optimal" if gap == 0 else "Feasible", elapsed)
         result["gap_pct"] = None if gap is None else round(gap * 100, 2)
         result["status_label"] = status_label(gap)

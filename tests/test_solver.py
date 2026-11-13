@@ -6,8 +6,13 @@ constraints and the nearest-neighbour baseline, both when solved to proven
 optimality and when cut off by the time limit.
 """
 
+import math
+from types import SimpleNamespace
+
+import highspy
 import pytest
 
+import optimizer_api
 from optimizer_api import (
     FleetOptimizer,
     Location,
@@ -16,7 +21,7 @@ from optimizer_api import (
     build_distance_matrix,
     build_time_matrix,
     generate_data,
-    mip_gap_from_cbc_log,
+    mip_gap,
     route_fits_time_limits,
     solve_baseline,
     status_label,
@@ -243,8 +248,8 @@ def test_baseline_reports_stops_it_cannot_serve():
 def test_infeasible_when_no_shift_spans_the_time_windows():
     # Three stops whose windows are at least four hours apart, and two
     # vehicles with 3-hour and 1-hour shifts: each can serve one stop at most.
-    # CBC 2.10.3 returned a three-stop route for this exact instance, labelled
-    # optimal, before solve() re-solved without preprocessing.
+    # CBC 2.10.3, used before HiGHS, returned a three-stop route for this
+    # exact instance, labelled optimal.
     depot = Location(id=0, name="Depot", lat=24.714, lon=46.675,
                      time_window_start=0, time_window_end=1440)
     stops = [(24.647, 46.745, 20, 0, 240), (24.731, 46.683, 60, 900, 960),
@@ -292,8 +297,10 @@ def test_milp_not_worse_than_nearest_neighbour(weights):
 
 
 def test_time_limit_returns_best_found_not_worse_than_baseline():
-    # The optimizer page's default size; proving optimality takes about 45 s,
-    # so a 1 s limit always stops early.
+    # The optimizer page's default size; proving optimality takes about 6 s,
+    # so a 1 s limit always stops early. Without the warm start HiGHS has no
+    # solution after 1 s and the status is "Not Solved", so a feasible plan
+    # here shows that HiGHS used the start.
     locations, vehicles = generate_data(10, 5, seed=42)
     weights = (0.5, 0.3, 0.2)
     baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
@@ -390,26 +397,36 @@ def test_infeasible_when_no_vehicle_can_carry_any_stop():
     assert result["status"] == "Infeasible", result
 
 
-# CBC log excerpts, one per way a solve can end.
-GAP_EXIT_LOG = """Cbc0011I Exiting as integer gap of 11.092808 less than 1e-10 or 30%
-Result - Optimal solution found (within gap tolerance)
-"""
-TIME_LIMIT_LOG = """Result - Stopped on time limit
-
-Objective value:                35.75403186
-Lower bound:                    27.498
-"""
-PROVEN_LOG = """Result - Optimal solution found
-
-Objective value:                12.51087493
-"""
+def highs_with_gap(gap):
+    return SimpleNamespace(getInfo=lambda: SimpleNamespace(mip_gap=gap))
 
 
-def test_gap_read_from_cbc_log():
-    assert mip_gap_from_cbc_log(GAP_EXIT_LOG, 38.59) == pytest.approx(11.092808 / 38.59)
-    assert mip_gap_from_cbc_log(TIME_LIMIT_LOG, 35.754) == pytest.approx((35.754 - 27.498) / 35.754)
-    assert mip_gap_from_cbc_log(PROVEN_LOG, 12.51) == 0.0
-    assert mip_gap_from_cbc_log("", 12.51) is None
+def test_gap_read_from_highs():
+    assert mip_gap(highs_with_gap(0.0)) == 0.0
+    assert mip_gap(highs_with_gap(5e-7)) == 0.0
+    assert mip_gap(highs_with_gap(0.0312)) == 0.0312
+    # No dual bound yet, e.g. stopped by the time limit before the root LP.
+    assert mip_gap(highs_with_gap(math.inf)) is None
+
+
+def test_gap_tolerance_stop_is_not_called_optimal(monkeypatch):
+    # HiGHS (and so PuLP) reports optimal when it stops within solver_gap of
+    # the bound; the result must still show the gap.
+    statuses = []
+
+    def spy(highs):
+        statuses.append(highs.getModelStatus())
+        return mip_gap(highs)
+
+    monkeypatch.setattr(optimizer_api, "mip_gap", spy)
+    locations, vehicles = generate_data(8, 3, seed=42)
+    config = OptimizationConfig(time_limit_seconds=None, solver_gap=0.1)
+    result = FleetOptimizer(locations, vehicles, config).solve()
+
+    assert statuses == [highspy.HighsModelStatus.kOptimal]
+    assert result["status"] == "Feasible"
+    assert 0 < result["gap_pct"] <= 10
+    assert result["status_label"] == f"Best found (gap {result['gap_pct']:.1f}%)"
 
 
 def test_status_label():
