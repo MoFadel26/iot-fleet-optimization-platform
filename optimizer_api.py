@@ -11,7 +11,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pulp
 import numpy as np
-import math, re, tempfile, time, warnings
+import functools, math, re, tempfile, time, warnings
 import requests
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -138,6 +138,86 @@ def build_time_matrix(dist_matrix, speed_kmh=40.0):
     return (dist_matrix / speed_kmh) * 60.0
 
 
+HERE_MATRIX_URL = "https://matrix.router.hereapi.com/v8/matrix"
+_matrix_log = logging.getLogger("matrix")
+
+
+@functools.lru_cache(maxsize=32)
+def _here_matrix(coords, api_key):
+    """Road distances (km) and travel times (minutes) between coords, from HERE.
+
+    One synchronous request to the HERE Matrix Routing API v8. Raises
+    requests.RequestException, or ValueError with the reason, when the answer
+    cannot be used. lru_cache keeps returned values only, so a failed request
+    is sent again next time.
+    """
+    n = len(coords)
+    res = requests.post(
+        HERE_MATRIX_URL,
+        params={"async": "false", "apiKey": api_key},
+        json={
+            # No "destinations": HERE then uses the origins, giving n x n.
+            "origins": [{"lat": lat, "lng": lng} for lat, lng in coords],
+            # A circle that HERE draws around the points, at most 400 km
+            # across. It allows 500 x 500 in one synchronous request; "world"
+            # without a profile stops at 15 origins and /optimize sends 16.
+            "regionDefinition": {"type": "autoCircle"},
+            "matrixAttributes": ["distances", "travelTimes"],
+            # No live traffic: the plan covers a whole day, and a cached
+            # answer must not depend on the minute it was asked for.
+            "departureTime": "any",
+        },
+        timeout=10.0,
+    )
+    if res.status_code != 200:
+        raise ValueError(f"HERE returned status {res.status_code}")
+    try:
+        matrix = res.json()["matrix"]
+        codes = set(matrix.get("errorCodes") or []) - {0}
+        # Flat arrays in metres and seconds, row by row: entry n * i + j is
+        # from point i to point j.
+        dist = np.array(matrix["distances"], dtype=float).reshape(n, n) / 1000.0
+        minutes = np.array(matrix["travelTimes"], dtype=float).reshape(n, n) / 60.0
+        if not (np.isfinite(dist).all() and np.isfinite(minutes).all()):
+            raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ValueError("malformed HERE response") from None
+    if codes:
+        raise ValueError(f"HERE error codes {sorted(codes)} in the matrix")
+    # The cache hands the same arrays to every caller.
+    dist.setflags(write=False)
+    minutes.setflags(write=False)
+    _matrix_log.info("HERE road matrix fetched for %d points", n)
+    return dist, minutes
+
+
+def travel_matrices(locations):
+    """Distance and travel-time matrices for one optimization.
+
+    Returns (dist, road_time, source). With HERE_API_KEY set and a usable
+    answer from HERE, dist is road distance in km, road_time is road travel
+    time in minutes (the same for every vehicle) and source is "road".
+    Otherwise dist is straight-line km, road_time is None (travel time is then
+    distance / the vehicle's speed_kmh) and source is "straight_line".
+    Road matrices are not symmetric: [i][j] is from i to j.
+    """
+    api_key = os.environ.get('HERE_API_KEY', '').strip()
+    if not api_key:
+        reason = "HERE_API_KEY is not set"
+    else:
+        try:
+            coords = tuple((loc.lat, loc.lon) for loc in locations)
+            dist, road_time = _here_matrix(coords, api_key)
+            return dist, road_time, "road"
+        except requests.RequestException as e:
+            # Not str(e): requests puts the URL, key included, in its messages.
+            reason = type(e).__name__
+        except ValueError as e:
+            reason = str(e)
+    _matrix_log.warning("No road distances (%s); using straight-line distances.", reason)
+    return build_distance_matrix(locations), None, "straight_line"
+
+
 def to_json_safe(obj):
     """Recursively convert numpy types to Python natives for jsonify."""
     if isinstance(obj, dict):
@@ -230,7 +310,8 @@ def route_fits_time_limits(route, locations, vehicle, tm):
     return clock + lead[-1] - depart <= vehicle.max_shift_hours * 60
 
 
-def solve_baseline(locations, vehicles, dist_matrix):
+def solve_baseline(locations, vehicles, dist_matrix, road_time=None):
+    """Nearest-neighbour routes. road_time: see travel_matrices()."""
     n = len(locations)
     unvisited = set(range(1, n))
     routes, vehicle_loads = {}, {}
@@ -239,7 +320,7 @@ def solve_baseline(locations, vehicles, dist_matrix):
     for v in vehicles:
         if not unvisited:
             break
-        tm = build_time_matrix(dist_matrix, v.speed_kmh)
+        tm = build_time_matrix(dist_matrix, v.speed_kmh) if road_time is None else road_time
         route, load, distance, current = [0], 0.0, 0.0, 0
 
         while unvisited:
@@ -327,15 +408,19 @@ def status_label(gap):
 
 
 class FleetOptimizer:
-    def __init__(self, locations, vehicles, config=None):
+    def __init__(self, locations, vehicles, config=None, dist=None, road_time=None):
+        """dist, road_time: from travel_matrices(); straight-line when omitted."""
         self.locations = locations
         self.vehicles = vehicles
         self.config = config or OptimizationConfig()
         self.n = len(locations)
         self.m = len(vehicles)
         self.customers = list(range(1, self.n))
-        self.dist = build_distance_matrix(locations)
-        self.time_matrix = {v.id: build_time_matrix(self.dist, v.speed_kmh) for v in vehicles}
+        self.dist = build_distance_matrix(locations) if dist is None else dist
+        self.road_time = road_time
+        self.time_matrix = {
+            v.id: build_time_matrix(self.dist, v.speed_kmh) if road_time is None else road_time
+            for v in vehicles}
 
     def _objective_refs(self, base):
         """Baseline total cost, total CO2 and longest route, in that order.
@@ -429,7 +514,7 @@ class FleetOptimizer:
         co2_expr = pulp.lpSum(
             self.vehicles[k].co2_per_km * self.dist[i][j] * x[i, j, k]
             for k in range(m) for i in range(n) for j in range(n) if i != j)
-        base = solve_baseline(self.locations, self.vehicles, self.dist)
+        base = solve_baseline(self.locations, self.vehicles, self.dist, self.road_time)
         cost_ref, co2_ref, fair_ref = self._objective_refs(base)
         # In percent of the baseline, not as a fraction: CBC logs the lower
         # bound with 3 decimals, which is too coarse to read the gap from when
@@ -662,7 +747,8 @@ def health():
 #   success 200: {"status": "success", "n_customers", "n_vehicles", "baseline", "optimized", "comparison"}
 #   error   500: {"status": "error", "message": "<msg>"}
 # Wrapped:
-#   success 200: ok({"n_customers", "n_vehicles", "baseline", "optimized", "comparison"})
+#   success 200: ok({"n_customers", "n_vehicles", "baseline", "optimized", "comparison",
+#                    "distance_source": "road"|"straight_line"})
 #   error   500: err("solver_failed", "<msg>", 500)
 @app.route('/optimize', methods=['POST'])
 def optimize():
@@ -680,8 +766,8 @@ def optimize():
     seed        = int(body.get('seed', 42))
 
     locations, vehicles = generate_data(n_customers, n_vehicles, seed=seed)
-    dist_matrix = build_distance_matrix(locations)
-    baseline = solve_baseline(locations, vehicles, dist_matrix)
+    dist_matrix, road_time, distance_source = travel_matrices(locations)
+    baseline = solve_baseline(locations, vehicles, dist_matrix, road_time)
 
     config = OptimizationConfig(
         w_cost=w_cost, w_co2=w_co2, w_fairness=w_fairness,
@@ -690,7 +776,7 @@ def optimize():
         cost_reduction_target=default_cfg.cost_reduction_target,
         co2_reduction_target=default_cfg.co2_reduction_target,
     )
-    optimizer = FleetOptimizer(locations, vehicles, config)
+    optimizer = FleetOptimizer(locations, vehicles, config, dist_matrix, road_time)
     result = optimizer.solve()
 
     if result.get('status') not in ('Optimal', 'Feasible'):
@@ -704,6 +790,7 @@ def optimize():
         'baseline':    baseline,
         'optimized':   result,
         'comparison':  comparison,
+        'distance_source': distance_source,
     })
 
     # Persist this run to MongoDB (fire-and-forget — don't block the response)
@@ -716,6 +803,7 @@ def optimize():
             "baseline":    baseline,
             "optimized":   result,
             "comparison":  comparison,
+            "distance_source": distance_source,
         })
     except Exception:
         pass  # never fail the API response because of a DB write error
@@ -728,7 +816,8 @@ def optimize():
 #            "n_vehicles":int (1..6, ≤len(customers)),
 #            "w_cost"?,"w_co2"?,"w_fairness"? (defaults 0.5/0.3/0.2),
 #            "enforce_vehicles"?:bool (default false — when true, solver must use ≥ n_vehicles)}
-# Success 200: ok({"routes": {"<k>": {"vehicle","stops":[{lat,lng,name},...],"distance_km"}}})
+# Success 200: ok({"routes": {"<k>": {"vehicle","stops":[{lat,lng,name},...],"distance_km"}},
+#                  "distance_source": "road"|"straight_line"})
 # Error   400: err("invalid_input", "<msg>", 400)
 # Error   500: err("solver_failed"|"no_vehicles", "<msg>", 500)
 @app.route('/api/optimize-custom', methods=['POST'])
@@ -826,7 +915,8 @@ def optimize_custom():
         co2_reduction_target=default_cfg.co2_reduction_target,
         min_vehicles_used=n_vehicles if enforce_vehicles else None,
     )
-    optimizer = FleetOptimizer(locations, vehicles, config)
+    dist_matrix, road_time, distance_source = travel_matrices(locations)
+    optimizer = FleetOptimizer(locations, vehicles, config, dist_matrix, road_time)
     result = optimizer.solve()
 
     if result.get('status') not in ('Optimal', 'Feasible'):
@@ -849,11 +939,11 @@ def optimize_custom():
             'distance_km': r['distance_km'],
         }
 
-    return ok(to_json_safe({'routes': trimmed_routes}))
+    return ok(to_json_safe({'routes': trimmed_routes, 'distance_source': distance_source}))
 
 
 # Current shape (BEFORE): {"depot": {...}, "vehicles": [...], "source": "..."}
-# Wrapped: ok({"depot": {...}, "vehicles": [...], "source": "..."})
+# Wrapped: ok({"depot": {...}, "vehicles": [...], "source": "...", "distance_source": "..."})
 @app.route('/fleet-routes', methods=['GET'])
 def fleet_routes():
     """
@@ -877,12 +967,14 @@ def fleet_routes():
         source = 'optimized'
 
     locations, vehicles_list = generate_data(n_cust, n_veh, seed=seed)
-    dist_matrix = build_distance_matrix(locations)
 
     if run and source == 'optimized':
         raw_routes = run['optimized']['routes']
+        # Runs saved before this field existed used straight-line distances.
+        distance_source = run.get('distance_source', 'straight_line')
     else:
-        baseline = solve_baseline(locations, vehicles_list, dist_matrix)
+        dist_matrix, road_time, distance_source = travel_matrices(locations)
+        baseline = solve_baseline(locations, vehicles_list, dist_matrix, road_time)
         raw_routes = baseline['routes']
 
     depot = locations[0]
@@ -947,6 +1039,7 @@ def fleet_routes():
         'depot':    {'name': depot.name, 'lat': depot.lat, 'lon': depot.lon},
         'vehicles': vehicles_out,
         'source':   source,
+        'distance_source': distance_source,
     }))
 
 

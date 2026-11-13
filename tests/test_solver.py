@@ -73,15 +73,17 @@ def assert_every_stop_once(result, n_customers):
     assert sorted(visited) == list(range(1, n_customers + 1))
 
 
-def min_clock_minutes(locations, vehicle, route):
+def min_clock_minutes(locations, vehicle, route, road_time=None):
     """Shortest depot-to-depot clock time of a route; None if a window is missed.
 
     With T(a, b) the service plus travel time along the route from a to b,
     service at stop j starts at the largest of departure + T(depot, j) and
     e_i + T(i, j) over the stops i up to j. Leaving as late as the windows
-    allow gives the least waiting.
+    allow gives the least waiting. road_time replaces the straight-line travel
+    times at the vehicle's speed.
     """
-    tm = build_time_matrix(build_distance_matrix(locations), vehicle.speed_kmh)
+    tm = (build_time_matrix(build_distance_matrix(locations), vehicle.speed_kmh)
+          if road_time is None else road_time)
     cum = [0.0]
     for a, b in zip(route, route[1:]):
         cum.append(cum[-1] + locations[a].service_time + tm[a][b])
@@ -96,9 +98,9 @@ def min_clock_minutes(locations, vehicle, route):
     return back - depart
 
 
-def assert_routes_fit_shift(result, locations, vehicles):
+def assert_routes_fit_shift(result, locations, vehicles, road_time=None):
     for k, r in result["routes"].items():
-        minutes = min_clock_minutes(locations, vehicles[int(k)], r["route"])
+        minutes = min_clock_minutes(locations, vehicles[int(k)], r["route"], road_time)
         assert minutes is not None, r["route"]
         assert minutes <= vehicles[int(k)].max_shift_hours * 60 + 1e-6, (r["route"], minutes)
 
