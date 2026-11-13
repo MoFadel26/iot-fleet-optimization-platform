@@ -103,12 +103,17 @@ def assert_routes_fit_shift(result, locations, vehicles):
         assert minutes <= vehicles[int(k)].max_shift_hours * 60 + 1e-6, (r["route"], minutes)
 
 
-def weighted_objective(result, weights):
-    """The MILP objective, recomputed from a result's routes."""
+def weighted_objective(result, weights, refs):
+    """The MILP objective as a fraction of the baseline, from a result's routes.
+
+    refs is FleetOptimizer._objective_refs(baseline).
+    """
     w_cost, w_co2, w_fair = weights
+    cost_ref, co2_ref, fair_ref = refs
     dists = [r["distance_km"] for r in result["routes"].values()]
     spread = max(dists) - min(dists) if dists else 0.0
-    return w_cost * result["total_cost_sar"] + w_co2 * result["total_co2_kg"] + w_fair * spread
+    return (w_cost * result["total_cost_sar"] / cost_ref
+            + w_co2 * result["total_co2_kg"] / co2_ref + w_fair * spread / fair_ref)
 
 
 # Total demand 300 with capacity 120: needs at least three vehicles.
@@ -274,11 +279,14 @@ def test_milp_not_worse_than_nearest_neighbour(weights):
     w_cost, w_co2, w_fair = weights
     config = OptimizationConfig(w_cost=w_cost, w_co2=w_co2, w_fairness=w_fair)
     assert (config.time_limit_seconds, config.solver_gap) == (30, 0.05)
-    optimized = FleetOptimizer(locations, vehicles, config).solve()
+    optimizer = FleetOptimizer(locations, vehicles, config)
+    optimized = optimizer.solve()
     assert optimized["status"] in ("Optimal", "Feasible"), optimized
     assert_every_stop_once(optimized, len(POINTS))
+    refs = optimizer._objective_refs(baseline)
     # Route totals are rounded to 2 decimals, hence the small tolerance.
-    assert weighted_objective(optimized, weights) <= weighted_objective(baseline, weights) + 0.05
+    assert (weighted_objective(optimized, weights, refs)
+            <= weighted_objective(baseline, weights, refs) + 0.002)
 
 
 def test_time_limit_returns_best_found_not_worse_than_baseline():
@@ -289,7 +297,8 @@ def test_time_limit_returns_best_found_not_worse_than_baseline():
     baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
     config = OptimizationConfig(w_cost=0.5, w_co2=0.3, w_fairness=0.2,
                                 time_limit_seconds=1, solver_gap=0.0)
-    result = FleetOptimizer(locations, vehicles, config).solve()
+    optimizer = FleetOptimizer(locations, vehicles, config)
+    result = optimizer.solve()
 
     assert result["warm_start"] is True
     assert result["status"] == "Feasible"
@@ -297,7 +306,9 @@ def test_time_limit_returns_best_found_not_worse_than_baseline():
     assert result["status_label"] == f"Best found (gap {result['gap_pct']:.1f}%)"
     assert_every_stop_once(result, 10)
     assert_routes_fit_shift(result, locations, vehicles)
-    assert weighted_objective(result, weights) <= weighted_objective(baseline, weights) + 0.05
+    refs = optimizer._objective_refs(baseline)
+    assert (weighted_objective(result, weights, refs)
+            <= weighted_objective(baseline, weights, refs) + 0.002)
 
 
 def test_higher_co2_weight_lowers_emissions():
@@ -313,6 +324,68 @@ def test_higher_co2_weight_lowers_emissions():
 
     assert co2_heavy["total_co2_kg"] < cost_heavy["total_co2_kg"]
     assert cost_heavy["total_cost_sar"] <= co2_heavy["total_cost_sar"]
+
+
+@pytest.mark.parametrize("rate", ["cost_per_km", "co2_per_km"])
+def test_plan_does_not_depend_on_the_unit_of_cost_or_co2(rate):
+    # Three vehicles that each can serve every stop: cheap and dirty,
+    # expensive and clean, and one in between. Quoting one rate in a unit
+    # 1000 times smaller (grams for kg) must leave the plan as it is. With
+    # the raw sum of cost, CO2 and km, the inflated numbers took over the
+    # objective and moved the stops from the middle vehicle to the cheapest
+    # or the cleanest one.
+    locations = make_locations([20] * len(POINTS))
+    weights = (0.2, 0.7, 0.1)
+
+    def plan(factor):
+        vehicles = [make_vehicle(0, cost=0.5, co2=0.30),
+                    make_vehicle(1, cost=2.0, co2=0.02),
+                    make_vehicle(2, cost=1.0, co2=0.10)]
+        for v in vehicles:
+            setattr(v, rate, getattr(v, rate) * factor)
+        return solve(locations, vehicles, weights)
+
+    plain, scaled = plan(1), plan(1000)
+    scale = {"total_cost_sar": 1, "total_co2_kg": 1}
+    scale["total_cost_sar" if rate == "cost_per_km" else "total_co2_kg"] = 1000
+    for total, factor in scale.items():
+        # Route totals are rounded to 2 decimals.
+        assert scaled[total] / factor == pytest.approx(plain[total], abs=0.02)
+    assert scaled["total_distance_km"] == pytest.approx(plain["total_distance_km"], abs=0.02)
+    assert scaled["workload_balance"] == plain["workload_balance"]
+
+
+def test_co2_still_counts_when_the_baseline_emits_nothing():
+    # Nearest neighbour puts every stop on the first vehicle, which has zero
+    # CO2, so the baseline CO2 is 0 and cannot be the scale of the CO2 term.
+    # The second vehicle is cheaper and emits, so the term must still decide.
+    locations = make_locations([20] * len(POINTS))
+    vehicles = [make_vehicle(0, cost=2.0, co2=0.0), make_vehicle(1, cost=0.5, co2=0.30)]
+    baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
+    assert list(baseline["routes"]) == ["0"] and baseline["total_co2_kg"] == 0
+
+    co2_heavy = solve(locations, vehicles, (0.1, 0.9, 0.0))
+    cost_heavy = solve(locations, vehicles, (0.9, 0.1, 0.0))
+    assert_every_stop_once(co2_heavy, len(POINTS))
+    assert_every_stop_once(cost_heavy, len(POINTS))
+    assert co2_heavy["total_co2_kg"] == 0
+    assert cost_heavy["total_co2_kg"] > 0
+    assert cost_heavy["total_cost_sar"] < co2_heavy["total_cost_sar"]
+
+    # A fleet with no emissions at all: the CO2 term is 0 for every plan.
+    clean = [make_vehicle(0, cost=2.0, co2=0.0), make_vehicle(1, cost=0.5, co2=0.0)]
+    result = solve(locations, clean, (0.1, 0.9, 0.0))
+    assert_every_stop_once(result, len(POINTS))
+    assert list(result["routes"]) == ["1"]
+
+
+def test_infeasible_when_no_vehicle_can_carry_any_stop():
+    # The baseline has no route at all, so there is nothing to scale by.
+    locations = make_locations([200] * len(POINTS))
+    vehicles = [make_vehicle(0, capacity=100), make_vehicle(1, capacity=100)]
+    config = OptimizationConfig(time_limit_seconds=None, solver_gap=0.0)
+    result = FleetOptimizer(locations, vehicles, config).solve()
+    assert result["status"] == "Infeasible", result
 
 
 # CBC log excerpts, one per way a solve can end.

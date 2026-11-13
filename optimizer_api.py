@@ -337,7 +337,34 @@ class FleetOptimizer:
         self.dist = build_distance_matrix(locations)
         self.time_matrix = {v.id: build_time_matrix(self.dist, v.speed_kmh) for v in vehicles}
 
-    def _set_warm_start(self, x, y):
+    def _objective_refs(self, base):
+        """Baseline total cost, total CO2 and longest route, in that order.
+
+        The objective divides its three terms by these, so each term is the
+        plan's value as a fraction of the baseline's and the weights do not
+        depend on the units. A baseline that left stops unserved has smaller
+        totals, but they are still positive and of the right size.
+        """
+        vehicle = {v.id: v for v in self.vehicles}
+        # Summed from the routes because the baseline's own totals are rounded.
+        km = {int(vid): sum(self.dist[a][b] for a, b in zip(r["route"], r["route"][1:]))
+              for vid, r in base["routes"].items()}
+
+        def total(rate):
+            # The baseline total is 0 when every vehicle it used has rate 0
+            # (EVs modelled as zero CO2) although other vehicles, which the
+            # MILP may use, do not. Price the baseline distance at the
+            # fleet's mean rate then. If that is 0 too, the whole fleet has
+            # rate 0 and the term is 0 for every plan, or the baseline has no
+            # route because no vehicle can take any stop and the MILP is
+            # infeasible; 1.0 only keeps the division defined.
+            return (sum(getattr(vehicle[vid], rate) * d for vid, d in km.items())
+                    or sum(getattr(v, rate) for v in self.vehicles) / self.m * sum(km.values())
+                    or 1.0)
+
+        return total("cost_per_km"), total("co2_per_km"), max(km.values(), default=0.0) or 1.0
+
+    def _set_warm_start(self, x, y, base):
         """Loads the nearest-neighbour routes as the MILP start, if they are feasible.
 
         CBC keeps this start as its incumbent, so a solve stopped by the time
@@ -346,7 +373,6 @@ class FleetOptimizer:
         """
         # Each baseline route already meets capacity, range, time windows and
         # shift, so only the fleet-wide rules are left to check.
-        base = solve_baseline(self.locations, self.vehicles, self.dist)
         k_of = {v.id: k for k, v in enumerate(self.vehicles)}
         routes = {k_of[int(vid)]: r["route"] for vid, r in base["routes"].items()}
         served = sorted(c for r in routes.values() for c in r if c != 0)
@@ -403,7 +429,13 @@ class FleetOptimizer:
         co2_expr = pulp.lpSum(
             self.vehicles[k].co2_per_km * self.dist[i][j] * x[i, j, k]
             for k in range(m) for i in range(n) for j in range(n) if i != j)
-        prob += w1 * cost_expr + w2 * co2_expr + w3 * (L_max - L_min)
+        base = solve_baseline(self.locations, self.vehicles, self.dist)
+        cost_ref, co2_ref, fair_ref = self._objective_refs(base)
+        # In percent of the baseline, not as a fraction: CBC logs the lower
+        # bound with 3 decimals, which is too coarse to read the gap from when
+        # the objective is near 1.
+        prob += 100 * (w1 * cost_expr / cost_ref + w2 * co2_expr / co2_ref
+                       + w3 * (L_max - L_min) / fair_ref)
 
         for j in self.customers:
             prob += pulp.lpSum(x[i, j, k] for k in range(m) for i in range(n) if i != j) == 1
@@ -489,7 +521,7 @@ class FleetOptimizer:
         if self.config.min_vehicles_used is not None:
             prob += pulp.lpSum(y[k] for k in range(m)) >= self.config.min_vehicles_used
 
-        warm = self._set_warm_start(x, y)
+        warm = self._set_warm_start(x, y, base)
         # msg=0 plus logPath: CBC's output goes to the file, which is the only
         # place it reports the remaining gap.
         # A directory, not NamedTemporaryFile: Windows can't reopen an open temp file.
