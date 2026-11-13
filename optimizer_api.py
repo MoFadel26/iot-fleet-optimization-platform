@@ -729,11 +729,11 @@ def err(code: str, message: str, status: int):
 
 # ── FLASK ENDPOINTS ────────────────────────────────────────────────────────────
 
-# Current shape (KEPT, NOT wrapped): {"status": "ok", "solver": "PuLP/CBC"}
+# Current shape (KEPT, NOT wrapped): {"status": "ok", "solver": "PuLP/HiGHS"}
 # Health checks are consumed externally and have a fixed contract.
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok', 'solver': 'PuLP/CBC'})
+    return jsonify({'status': 'ok', 'solver': 'PuLP/HiGHS'})
 
 
 # Current shape (BEFORE):

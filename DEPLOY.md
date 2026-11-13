@@ -61,7 +61,7 @@ gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
 | `HERE_API_KEY` | For geocoding and road distances | HERE API key, used for the Geocoding API and the Matrix Routing API v8. Without it `/api/geocode` returns `missing_api_key`, and the optimizer uses straight-line distances at each vehicle's fixed speed instead of road distances and travel times. It does the same, with a warning in the log, when the HERE request fails. Responses say which was used in `distance_source` (`road` or `straight_line`). |
 | `PORT` | Yes | Port to bind, used in the start command above. |
 
-**Check it:** `GET https://<backend-host>/health` returns `{"solver":"PuLP/CBC","status":"ok"}`.
+**Check it:** `GET https://<backend-host>/health` returns `{"solver":"PuLP/HiGHS","status":"ok"}`.
 
 The API allows requests from any origin (flask-cors defaults), so the frontend can live on a different domain without extra configuration.
 
