@@ -14,6 +14,7 @@ from optimizer_api import (
     OptimizationConfig,
     Vehicle,
     build_distance_matrix,
+    build_time_matrix,
     generate_data,
     mip_gap_from_cbc_log,
     solve_baseline,
@@ -71,6 +72,36 @@ def assert_every_stop_once(result, n_customers):
     assert sorted(visited) == list(range(1, n_customers + 1))
 
 
+def min_clock_minutes(locations, vehicle, route):
+    """Shortest depot-to-depot clock time of a route; None if a window is missed.
+
+    With T(a, b) the service plus travel time along the route from a to b,
+    service at stop j starts at the largest of departure + T(depot, j) and
+    e_i + T(i, j) over the stops i up to j. Leaving as late as the windows
+    allow gives the least waiting.
+    """
+    tm = build_time_matrix(build_distance_matrix(locations), vehicle.speed_kmh)
+    cum = [0.0]
+    for a, b in zip(route, route[1:]):
+        cum.append(cum[-1] + locations[a].service_time + tm[a][b])
+    stops = [(cum[p], locations[route[p]]) for p in range(1, len(route) - 1)]
+    for p, (t_j, j) in enumerate(stops):
+        if any(i.time_window_start + t_j - t_i > j.time_window_end for t_i, i in stops[:p + 1]):
+            return None
+    depart = min([locations[0].time_window_end] + [j.time_window_end - t_j for t_j, j in stops])
+    if depart < 0:
+        return None
+    back = max([depart + cum[-1]] + [j.time_window_start + cum[-1] - t_j for t_j, j in stops])
+    return back - depart
+
+
+def assert_routes_fit_shift(result, locations, vehicles):
+    for k, r in result["routes"].items():
+        minutes = min_clock_minutes(locations, vehicles[int(k)], r["route"])
+        assert minutes is not None, r["route"]
+        assert minutes <= vehicles[int(k)].max_shift_hours * 60 + 1e-6, (r["route"], minutes)
+
+
 def weighted_objective(result, weights):
     """The MILP objective, recomputed from a result's routes."""
     w_cost, w_co2, w_fair = weights
@@ -106,6 +137,43 @@ def test_vehicle_capacity_respected(tight_case):
         assert load <= by_name[r["vehicle"]].capacity
     # Capacity is binding: 300 kg needs all three 120 kg vehicles.
     assert result["vehicles_used"] == 3
+
+
+def test_shift_respected(tight_case):
+    locations, vehicles, result = tight_case
+    assert_routes_fit_shift(result, locations, vehicles)
+
+
+def test_waiting_for_a_time_window_counts_towards_the_shift():
+    # Two stops a few minutes of driving apart, but the second opens nine
+    # hours after the first closes. One vehicle serving both would be out for
+    # more than its 8-hour shift, most of it waiting.
+    depot = Location(id=0, name="Depot", lat=DEPOT[0], lon=DEPOT[1],
+                     time_window_start=0, time_window_end=1440)
+    morning = Location(id=1, name="Morning", lat=POINTS[0][0], lon=POINTS[0][1], demand=20,
+                       service_time=5, time_window_start=480, time_window_end=540)
+    evening = Location(id=2, name="Evening", lat=POINTS[1][0], lon=POINTS[1][1], demand=20,
+                       service_time=5, time_window_start=1080, time_window_end=1140)
+    locations = [depot, morning, evening]
+    vehicles = [make_vehicle(0), make_vehicle(1)]
+    shift = vehicles[0].max_shift_hours * 60
+
+    # Travel plus service alone is far below the shift; the clock time is not.
+    tm = build_time_matrix(build_distance_matrix(locations), vehicles[0].speed_kmh)
+    assert tm[0][1] + 5 + tm[1][2] + 5 + tm[2][0] < 60
+    assert min_clock_minutes(locations, vehicles[0], [0, 1, 2, 0]) > shift
+
+    optimizer = FleetOptimizer(locations, vehicles)
+    assert not optimizer._route_fits_time_limits([0, 1, 2, 0], 0)
+    # A route may leave the depot late, so a stop that opens at 18:00 is fine.
+    assert optimizer._route_fits_time_limits([0, 2, 0], 0)
+
+    result = solve(locations, vehicles, (0.5, 0.3, 0.2))
+    assert_every_stop_once(result, 2)
+    assert result["vehicles_used"] == 2
+    assert_routes_fit_shift(result, locations, vehicles)
+    # Nearest neighbour puts both stops on one vehicle; that start is rejected.
+    assert result["warm_start"] is False
 
 
 @pytest.mark.parametrize("weights", [(0.5, 0.3, 0.2), (0.7, 0.2, 0.1), (0.2, 0.2, 0.6)])
@@ -146,6 +214,7 @@ def test_time_limit_returns_best_found_not_worse_than_baseline():
     assert result["gap_pct"] > 0
     assert result["status_label"] == f"Best found (gap {result['gap_pct']:.1f}%)"
     assert_every_stop_once(result, 10)
+    assert_routes_fit_shift(result, locations, vehicles)
     assert weighted_objective(result, weights) <= weighted_objective(baseline, weights) + 0.05
 
 

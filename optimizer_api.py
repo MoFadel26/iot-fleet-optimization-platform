@@ -312,16 +312,23 @@ class FleetOptimizer:
     def _route_fits_time_limits(self, route, k):
         """True if a depot-to-depot route meets the MILP's time windows and shift."""
         tm = self.time_matrix[self.vehicles[k].id]
-        clock, driving = 0.0, 0.0
-        for a, b in zip(route, route[1:]):
-            lead = self.locations[a].service_time + tm[a][b]
-            driving += lead
-            if b == 0:
-                continue
-            clock = max(self.locations[b].time_window_start, clock + lead)
-            if clock > self.locations[b].time_window_end:
+        loc = self.locations
+        lead = [loc[a].service_time + tm[a][b] for a, b in zip(route, route[1:])]
+        # Leaving later only removes waiting, so the route is shortest by the
+        # clock when it leaves as late as the windows allow. Work back from the
+        # last stop to find that departure, then forward to get the return time.
+        latest = float("inf")
+        for p in range(len(route) - 2, 0, -1):
+            latest = min(loc[route[p]].time_window_end, latest - lead[p])
+            if latest < loc[route[p]].time_window_start:
                 return False
-        return driving <= self.vehicles[k].max_shift_hours * 60
+        depart = min(loc[0].time_window_end, latest - lead[0])
+        if depart < 0:
+            return False
+        clock = depart
+        for p in range(1, len(route) - 1):
+            clock = max(loc[route[p]].time_window_start, clock + lead[p - 1])
+        return clock + lead[-1] - depart <= self.vehicles[k].max_shift_hours * 60
 
     def _set_warm_start(self, x, y):
         """Loads the nearest-neighbour routes as the MILP start, if they are feasible.
@@ -373,6 +380,12 @@ class FleetOptimizer:
                 self.locations[i].time_window_start if i > 0 else 0,
                 self.locations[i].time_window_end)
              for k in range(m) for i in range(n)}
+        # Time out of the depot is travel + service + waiting. If one instant
+        # lies inside every time window, a vehicle can leave late enough to
+        # never wait, so the travel + service limit alone is the clock limit.
+        # Otherwise the return time must also be tied to the departure time.
+        may_wait = (max(self.locations[c].time_window_start for c in self.customers)
+                    > min(loc.time_window_end for loc in self.locations))
         L = {k: pulp.LpVariable(f"L_{k}", 0, max_range) for k in range(m)}
         L_max = pulp.LpVariable("L_max", 0, max_range)
         L_min = pulp.LpVariable("L_min", 0, max_range)
@@ -424,6 +437,36 @@ class FleetOptimizer:
             prob += pulp.lpSum(
                 (self.time_matrix[vid][i][j] + self.locations[i].service_time) * x[i, j, k]
                 for i in range(n) for j in range(n) if i != j) <= shift
+            if may_wait:
+                tm = self.time_matrix[vid]
+                # Leaving later never breaks a route, so the departure s_0 can
+                # be held to the earliest time any first stop could need it.
+                depot = self.locations[0]
+                depart_lb = max(0.0, min(depot.time_window_end, min(
+                    self.locations[j].time_window_start - depot.service_time - tm[0][j]
+                    for j in self.customers)))
+                s[0, k].lowBound = depart_lb
+                for i in self.customers:
+                    loc = self.locations[i]
+                    lead = loc.service_time + tm[i][0]
+                    # Shift by the clock: if i is the last stop, the return
+                    # time s_i + svc_i + t_i0 is at most s_0 + shift. Slack
+                    # that keeps this valid in the other two cases:
+                    # - i is not on this vehicle: s_i is free and can sit at
+                    #   e_i, and s_0 >= depart_lb.
+                    # - i is on it but not last: the vehicle still has an arc
+                    #   to another customer and an arc into the depot to drive
+                    #   (at least `onward` minutes) and is back by s_0 + shift,
+                    #   so s_i - s_0 <= shift - onward.
+                    onward = (min((loc.service_time + tm[i][j]
+                                   for j in self.customers if j != i), default=0.0)
+                              + min((self.locations[j].service_time + tm[j][0]
+                                     for j in self.customers if j != i), default=0.0))
+                    m_off = max(0.0, loc.time_window_start + lead - depart_lb - shift)
+                    m_mid = max(0.0, lead - onward)
+                    on_route = pulp.lpSum(x[i, j, k] for j in range(n) if j != i)
+                    prob += (s[i, k] + lead - s[0, k] <= shift + m_off * (1 - on_route)
+                             + m_mid * (on_route - x[i, 0, k]))
             prob += L[k] == pulp.lpSum(
                 self.dist[i][j] * x[i, j, k]
                 for i in range(n) for j in range(n) if i != j)
