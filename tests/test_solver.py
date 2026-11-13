@@ -176,6 +176,31 @@ def test_waiting_for_a_time_window_counts_towards_the_shift():
     assert result["warm_start"] is False
 
 
+def test_infeasible_when_no_shift_spans_the_time_windows():
+    # Three stops whose windows are at least four hours apart, and two
+    # vehicles with 3-hour and 1-hour shifts: each can serve one stop at most.
+    # CBC 2.10.3 returned a three-stop route for this exact instance, labelled
+    # optimal, before solve() re-solved without preprocessing.
+    depot = Location(id=0, name="Depot", lat=24.714, lon=46.675,
+                     time_window_start=0, time_window_end=1440)
+    stops = [(24.647, 46.745, 20, 0, 240), (24.731, 46.683, 60, 900, 960),
+             (24.810, 46.633, 60, 480, 540)]
+    customers = [
+        Location(id=i + 1, name=f"C{i + 1}", lat=lat, lon=lon, demand=demand,
+                 service_time=5, time_window_start=start, time_window_end=end)
+        for i, (lat, lon, demand, start, end) in enumerate(stops)
+    ]
+    vehicles = [
+        Vehicle(id=0, name="V0", vehicle_type="ICE", capacity=500, cost_per_km=1.8,
+                co2_per_km=0.02, max_range=400, max_shift_hours=3.0, speed_kmh=30.0),
+        Vehicle(id=1, name="V1", vehicle_type="ICE", capacity=100, cost_per_km=0.6,
+                co2_per_km=0.02, max_range=400, max_shift_hours=1.0, speed_kmh=40.0),
+    ]
+    config = OptimizationConfig(time_limit_seconds=None, solver_gap=0.0)
+    result = FleetOptimizer([depot] + customers, vehicles, config).solve()
+    assert result["status"] == "Infeasible", result
+
+
 @pytest.mark.parametrize("weights", [(0.5, 0.3, 0.2), (0.7, 0.2, 0.1), (0.2, 0.2, 0.6)])
 def test_milp_not_worse_than_nearest_neighbour(weights):
     """Under the default 30 s limit and 5% gap, not only when proven optimal."""

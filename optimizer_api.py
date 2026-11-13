@@ -495,6 +495,14 @@ class FleetOptimizer:
             prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
             with open(log_path) as f:
                 cbc_log = f.read()
+            # CBC 2.10 can fix every integer in preprocessing and then return a
+            # solution that breaks constraints, labelled optimal (seen when no
+            # route plan fits the shifts). Its log says so; solve again without
+            # preprocessing.
+            if "Postprocessed model is infeasible" in cbc_log:
+                prob.solve(pulp.PULP_CBC_CMD(options=["preprocess off"], **solver_kwargs))
+                with open(log_path) as f:
+                    cbc_log = f.read()
         elapsed = time.time() - t0
 
         # PuLP reports "Optimal" whenever CBC returns a solution, including one
