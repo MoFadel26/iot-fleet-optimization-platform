@@ -50,6 +50,7 @@ gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
 ```
 
 - `--timeout 120` is required. The solver runs for up to 30 seconds by default, and gunicorn's own default timeout (30 s) would kill the worker mid-solve and return a 502.
+- The solver (HiGHS) runs each solve on as many threads as it finds CPU cores, so with 2 workers two solves at once share the cores.
 - `$PORT` is the port your host routes traffic to. Most platforms set it; otherwise pick one (the local default is 5001).
 
 **Environment variables**

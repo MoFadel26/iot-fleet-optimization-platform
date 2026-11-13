@@ -40,7 +40,7 @@ This platform provides an end-to-end operational system connecting managers, dri
 
 ## 3. The Optimization & Machine Learning Engine
 
-The core calculation service models the delivery network as a **Multi-Objective Vehicle Routing Problem with Time Windows (MO-VRPTW)**, formulated as a **Mixed-Integer Linear Program (MILP)** solved using the **COIN-OR Branch-and-Cut (CBC)** engine.
+The core calculation service models the delivery network as a **Multi-Objective Vehicle Routing Problem with Time Windows (MO-VRPTW)**, formulated as a **Mixed-Integer Linear Program (MILP)** solved using the **HiGHS** branch-and-cut MIP solver, called through PuLP.
 
 ### A. Decision Variables
 
@@ -109,7 +109,7 @@ When vehicles are in transit, continuous telemetry is evaluated against operatin
 
 ## 5. Technology Stack Summary
 
-- **Optimization Core**: Python, PuLP, COIN-OR CBC MILP Solver, NumPy.
+- **Optimization Core**: Python, PuLP, HiGHS MILP Solver (highspy), NumPy.
 - **Backend API**: Flask, Gunicorn, MongoDB.
 - **Frontend Dashboard & Mobile App**: React 18, TypeScript, Tailwind CSS, Leaflet.
 - **IoT & Hardware Integration**: ESP32 firmware, DHT temperature/humidity sensors, accelerometer motion states.
