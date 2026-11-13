@@ -316,7 +316,7 @@ const en: Record<string, string> = {
   'settings.startTime': 'Operating Start Time',
   'settings.endTime': 'Operating End Time',
   'settings.optimization': 'Optimization Weights',
-  'settings.optimizationDesc': 'Adjust algorithm priorities',
+  'settings.optimizationDesc': 'How much each goal counts, each measured relative to the baseline plan',
   'settings.costWeight': 'Cost Weight',
   'settings.co2Weight': 'CO₂ Weight',
   'settings.workloadWeight': 'Workload Balance Weight',
@@ -818,7 +818,7 @@ const ar: Record<string, string> = {
   'settings.startTime': 'وقت بدء التشغيل',
   'settings.endTime': 'وقت انتهاء التشغيل',
   'settings.optimization': 'أوزان التحسين',
-  'settings.optimizationDesc': 'ضبط أولويات الخوارزمية',
+  'settings.optimizationDesc': 'مقدار أهمية كل هدف، ويُقاس كل هدف نسبةً إلى الخطة الأساسية',
   'settings.costWeight': 'وزن التكلفة',
   'settings.co2Weight': 'وزن ثاني أكسيد الكربون',
   'settings.workloadWeight': 'وزن توازن العمل',
@@ -1233,7 +1233,7 @@ const ur: Record<string, string> = {
   'settings.startTime': 'آپریٹنگ شروع کا وقت', // TODO: verify Urdu
   'settings.endTime': 'آپریٹنگ ختم کا وقت', // TODO: verify Urdu
   'settings.optimization': 'اصلاح کے وزن', // TODO: verify Urdu
-  'settings.optimizationDesc': 'الگورتھم کی ترجیحات ایڈجسٹ کریں', // TODO: verify Urdu
+  'settings.optimizationDesc': 'ہر مقصد کی اہمیت، ہر ایک بنیادی منصوبے کے مقابلے میں ناپا جاتا ہے', // TODO: verify Urdu
   'settings.costWeight': 'لاگت کا وزن', // TODO: verify Urdu
   'settings.co2Weight': 'CO₂ کا وزن', // TODO: verify Urdu
   'settings.workloadWeight': 'کام کے توازن کا وزن', // TODO: verify Urdu
