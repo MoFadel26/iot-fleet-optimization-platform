@@ -17,6 +17,7 @@ from optimizer_api import (
     build_time_matrix,
     generate_data,
     mip_gap_from_cbc_log,
+    route_fits_time_limits,
     solve_baseline,
     status_label,
 )
@@ -163,17 +164,73 @@ def test_waiting_for_a_time_window_counts_towards_the_shift():
     assert tm[0][1] + 5 + tm[1][2] + 5 + tm[2][0] < 60
     assert min_clock_minutes(locations, vehicles[0], [0, 1, 2, 0]) > shift
 
-    optimizer = FleetOptimizer(locations, vehicles)
-    assert not optimizer._route_fits_time_limits([0, 1, 2, 0], 0)
+    assert not route_fits_time_limits([0, 1, 2, 0], locations, vehicles[0], tm)
     # A route may leave the depot late, so a stop that opens at 18:00 is fine.
-    assert optimizer._route_fits_time_limits([0, 2, 0], 0)
+    assert route_fits_time_limits([0, 2, 0], locations, vehicles[0], tm)
 
     result = solve(locations, vehicles, (0.5, 0.3, 0.2))
     assert_every_stop_once(result, 2)
     assert result["vehicles_used"] == 2
     assert_routes_fit_shift(result, locations, vehicles)
-    # Nearest neighbour puts both stops on one vehicle; that start is rejected.
+    # Nearest neighbour keeps the stops on separate vehicles, so its routes
+    # are a valid start.
+    assert result["warm_start"] is True
+
+
+def make_timed_locations(windows):
+    """Depot plus one stop per (start, end) window, at POINTS in order."""
+    depot = Location(id=0, name="Depot", lat=DEPOT[0], lon=DEPOT[1],
+                     time_window_start=0, time_window_end=1440)
+    customers = [
+        Location(id=i + 1, name=f"C{i + 1}", lat=lat, lon=lon, demand=20,
+                 service_time=5, time_window_start=start, time_window_end=end)
+        for i, ((lat, lon), (start, end)) in enumerate(zip(POINTS, windows))
+    ]
+    return [depot] + customers
+
+
+@pytest.mark.parametrize("windows", [
+    [(600, 660), (480, 540)],    # the second stop closes before the first opens
+    [(480, 540), (1080, 1140)],  # nine hours of waiting: longer than the shift
+])
+def test_baseline_obeys_time_windows_and_shift(windows):
+    locations = make_timed_locations(windows)
+    vehicles = [make_vehicle(0), make_vehicle(1)]
+    dist = build_distance_matrix(locations)
+
+    # By distance alone nearest neighbour drives 0 -> 1 -> 2 -> 0 on one
+    # vehicle, which the time rules forbid.
+    assert dist[0][1] < dist[0][2]
+    plain = min_clock_minutes(locations, vehicles[0], [0, 1, 2, 0])
+    assert plain is None or plain > vehicles[0].max_shift_hours * 60
+
+    baseline = solve_baseline(locations, vehicles, dist)
+    assert_every_stop_once(baseline, 2)
+    assert_routes_fit_shift(baseline, locations, vehicles)
+    assert baseline["unserved"] == []
+
+    result = solve(locations, vehicles, (0.5, 0.3, 0.2))
+    assert result["warm_start"] is True
+    assert FleetOptimizer(locations, vehicles).compare(baseline, result)["baseline_served_all"] is True
+
+
+def test_baseline_reports_stops_it_cannot_serve():
+    # Stop 3 is nearest to the depot, so the first vehicle starts there. Stop 1
+    # has closed by then and stop 2 opens nine hours later, so it takes neither.
+    # The second vehicle takes stop 1 and cannot wait for stop 2 either. The
+    # MILP serves all three: 1 then 3 on one vehicle, 2 on the other.
+    locations = make_timed_locations([(480, 540), (1200, 1260), (600, 660)])
+    vehicles = [make_vehicle(0), make_vehicle(1)]
+
+    baseline = solve_baseline(locations, vehicles, build_distance_matrix(locations))
+    assert [r["route"] for r in baseline["routes"].values()] == [[0, 3, 0], [0, 1, 0]]
+    assert baseline["unserved"] == [2]
+    assert_routes_fit_shift(baseline, locations, vehicles)
+
+    result = solve(locations, vehicles, (0.5, 0.3, 0.2))
+    assert_every_stop_once(result, 3)
     assert result["warm_start"] is False
+    assert FleetOptimizer(locations, vehicles).compare(baseline, result)["baseline_served_all"] is False
 
 
 def test_infeasible_when_no_shift_spans_the_time_windows():

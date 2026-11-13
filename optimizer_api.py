@@ -206,6 +206,30 @@ def generate_data(n_customers=15, n_vehicles=5, seed=42):
 
 # ── BASELINE: NEAREST NEIGHBOUR ────────────────────────────────────────────────
 
+def route_fits_time_limits(route, locations, vehicle, tm):
+    """True if a depot-to-depot route meets the MILP's time windows and shift.
+
+    tm is the vehicle's travel-time matrix in minutes.
+    """
+    loc = locations
+    lead = [loc[a].service_time + tm[a][b] for a, b in zip(route, route[1:])]
+    # Leaving later only removes waiting, so the route is shortest by the
+    # clock when it leaves as late as the windows allow. Work back from the
+    # last stop to find that departure, then forward to get the return time.
+    latest = float("inf")
+    for p in range(len(route) - 2, 0, -1):
+        latest = min(loc[route[p]].time_window_end, latest - lead[p])
+        if latest < loc[route[p]].time_window_start:
+            return False
+    depart = min(loc[0].time_window_end, latest - lead[0])
+    if depart < 0:
+        return False
+    clock = depart
+    for p in range(1, len(route) - 1):
+        clock = max(loc[route[p]].time_window_start, clock + lead[p - 1])
+    return clock + lead[-1] - depart <= vehicle.max_shift_hours * 60
+
+
 def solve_baseline(locations, vehicles, dist_matrix):
     n = len(locations)
     unvisited = set(range(1, n))
@@ -215,6 +239,7 @@ def solve_baseline(locations, vehicles, dist_matrix):
     for v in vehicles:
         if not unvisited:
             break
+        tm = build_time_matrix(dist_matrix, v.speed_kmh)
         route, load, distance, current = [0], 0.0, 0.0, 0
 
         while unvisited:
@@ -223,7 +248,8 @@ def solve_baseline(locations, vehicles, dist_matrix):
                 d = dist_matrix[current][c]
                 if (d < best_d and
                         load + locations[c].demand <= v.capacity and
-                        distance + d + dist_matrix[c][0] <= v.max_range):
+                        distance + d + dist_matrix[c][0] <= v.max_range and
+                        route_fits_time_limits(route + [c, 0], locations, v, tm)):
                     best, best_d = c, d
             if best is None:
                 break
@@ -260,6 +286,8 @@ def solve_baseline(locations, vehicles, dist_matrix):
         "total_distance_km": round(float(sum(vehicle_loads.values())), 2),
         "vehicles_used": len(routes),
         "workload_balance": round(1 - (mx - mn) / mx, 3) if mx > 0 else 0.0,
+        # Customers no vehicle could take; the totals above leave them out.
+        "unserved": sorted(unvisited),
     }
 
 
@@ -309,27 +337,6 @@ class FleetOptimizer:
         self.dist = build_distance_matrix(locations)
         self.time_matrix = {v.id: build_time_matrix(self.dist, v.speed_kmh) for v in vehicles}
 
-    def _route_fits_time_limits(self, route, k):
-        """True if a depot-to-depot route meets the MILP's time windows and shift."""
-        tm = self.time_matrix[self.vehicles[k].id]
-        loc = self.locations
-        lead = [loc[a].service_time + tm[a][b] for a, b in zip(route, route[1:])]
-        # Leaving later only removes waiting, so the route is shortest by the
-        # clock when it leaves as late as the windows allow. Work back from the
-        # last stop to find that departure, then forward to get the return time.
-        latest = float("inf")
-        for p in range(len(route) - 2, 0, -1):
-            latest = min(loc[route[p]].time_window_end, latest - lead[p])
-            if latest < loc[route[p]].time_window_start:
-                return False
-        depart = min(loc[0].time_window_end, latest - lead[0])
-        if depart < 0:
-            return False
-        clock = depart
-        for p in range(1, len(route) - 1):
-            clock = max(loc[route[p]].time_window_start, clock + lead[p - 1])
-        return clock + lead[-1] - depart <= self.vehicles[k].max_shift_hours * 60
-
     def _set_warm_start(self, x, y):
         """Loads the nearest-neighbour routes as the MILP start, if they are feasible.
 
@@ -337,6 +344,8 @@ class FleetOptimizer:
         limit still returns a solution at least as good as the baseline.
         Returns True if the start was set.
         """
+        # Each baseline route already meets capacity, range, time windows and
+        # shift, so only the fleet-wide rules are left to check.
         base = solve_baseline(self.locations, self.vehicles, self.dist)
         k_of = {v.id: k for k, v in enumerate(self.vehicles)}
         routes = {k_of[int(vid)]: r["route"] for vid, r in base["routes"].items()}
@@ -345,8 +354,6 @@ class FleetOptimizer:
             return False
         if (self.config.min_vehicles_used is not None
                 and len(routes) < self.config.min_vehicles_used):
-            return False
-        if not all(self._route_fits_time_limits(r, k) for k, r in routes.items()):
             return False
         for var in list(x.values()) + list(y.values()):
             var.setInitialValue(0)
@@ -586,6 +593,9 @@ class FleetOptimizer:
             "vehicles_optimized": optimized["vehicles_used"],
             "workload_baseline": baseline["workload_balance"],
             "workload_optimized": optimized["workload_balance"],
+            # False means the baseline totals cover fewer stops than the
+            # optimized ones, so the reductions above understate the saving.
+            "baseline_served_all": not baseline["unserved"],
             "spec1_met": cost_red >= self.config.cost_reduction_target,
             "spec3_met": co2_red >= self.config.co2_reduction_target,
             "spec2_met": optimized["vehicles_used"] > baseline["vehicles_used"],
