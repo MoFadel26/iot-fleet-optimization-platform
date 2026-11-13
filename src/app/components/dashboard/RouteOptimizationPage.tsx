@@ -31,6 +31,8 @@ interface ApiResult {
     total_co2_kg: number;
     vehicles_used: number;
     workload_balance: number;
+    /** Customer ids the baseline could not fit on any vehicle. */
+    unserved: number[];
   };
   optimized: {
     total_cost_sar: number;
@@ -53,6 +55,7 @@ interface ApiResult {
     vehicles_optimized: number;
     workload_baseline: number;
     workload_optimized: number;
+    baseline_served_all: boolean;
     spec1_met: boolean;
     spec3_met: boolean;
     spec2_met: boolean;
@@ -311,6 +314,12 @@ export function RouteOptimizationPage() {
                   </div>
                 ))}
               </div>
+
+              {!comp.baseline_served_all && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                  Baseline left {base.unserved.length} {base.unserved.length === 1 ? 'stop' : 'stops'} unserved, so the reduction figures understate the saving.
+                </div>
+              )}
 
               {/* Workload + solve time */}
               <div className="bg-white rounded-lg border border-gray-200 px-5 py-4 flex items-center justify-between">
